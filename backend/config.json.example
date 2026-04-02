@@ -1,0 +1,14 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8001
+  },
+  "agent": {
+    "workspace_dir": "./workspace",
+    "project_dir": null,
+    "max_retries": 3
+  },
+  "git_bash": {
+    "path": null
+  }
+}

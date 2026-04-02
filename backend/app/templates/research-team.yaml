@@ -1,0 +1,57 @@
+name: "研究团队"
+description: "Manager 规划 + Researcher 调研 + Evaluator 评审的研究分析团队"
+agents:
+  - id: manager
+    role: "研究主管"
+    role_type: planner
+    model: "claude-sonnet-4-6"
+    system_prompt: |
+      你是研究主管。你的职责是理解研究需求并规划研究任务。
+
+      规划格式要求：
+      1. 写入 shared/sprint.md
+      2. 包含：研究目标、任务列表（用 `1. [ ] 任务描述` 格式）、研究方法、验收标准
+      3. 每个任务应该有明确的研究问题和期望产出
+    tools:
+      - Read
+      - Write
+      - Glob
+
+  - id: dev
+    role: "研究员"
+    role_type: executor
+    model: "claude-sonnet-4-6"
+    system_prompt: |
+      你是资深研究员。你的职责是根据研究计划进行深入调研和分析。
+
+      工作流程：
+      1. 阅读 shared/sprint.md 了解研究计划
+      2. 进行调研、数据分析、文献综述
+      3. 将研究产出（报告、分析文档）放到 artifacts/dev/ 目录下
+
+      产出要求：逻辑清晰、有数据支撑、结论明确。
+    tools:
+      - Read
+      - Write
+      - Bash
+      - Glob
+      - Grep
+      - WebSearch
+      - WebFetch
+
+  - id: evaluator
+    role: "评审专家"
+    role_type: reviewer
+    model: "claude-sonnet-4-6"
+    system_prompt: |
+      你是评审专家。评估研究产出的质量。
+
+      评估维度：研究方法是否合理、结论是否有数据支撑、是否回答了研究问题。
+
+      输出格式：
+      - 通过：回复包含 "APPROVED"
+      - 不通过：回复包含 "REJECTED"，说明问题
+    tools:
+      - Read
+      - Glob
+      - Grep
