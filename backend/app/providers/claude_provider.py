@@ -1,19 +1,19 @@
 # providers/claude_provider.py
-"""Claude Agent SDK Provider — 让每个 Agent 像 Claude Code 一样能读写文件、执行命令、搜索代码"""
+"""Claude Agent SDK Provider — gives each Agent Claude Code-level capabilities: file I/O, shell commands, code search"""
 from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage, AssistantMessage
 from app.providers.base import BaseProvider
 from typing import AsyncIterator, Callable, Optional
 
 
 class ClaudeProvider(BaseProvider):
-    """通过 Claude Agent SDK 调用 Claude
+    """Call Claude via Agent SDK
 
-    核心价值：Agent SDK 不只是 LLM 对话接口，
-    它让 Agent 拥有 Claude Code 的全部能力：
-    - Read/Write/Edit: 读写和编辑文件
-    - Bash: 执行 shell 命令
-    - Glob/Grep: 搜索文件和代码
-    - WebSearch/WebFetch: 搜索和获取网页内容
+    Core value: Agent SDK is not just an LLM chat interface,
+    it gives Agents full Claude Code capabilities:
+    - Read/Write/Edit: read, write and edit files
+    - Bash: execute shell commands
+    - Glob/Grep: search files and code
+    - WebSearch/WebFetch: search and fetch web content
     """
 
     def __init__(self, on_activity: Optional[Callable] = None):
@@ -27,31 +27,40 @@ class ClaudeProvider(BaseProvider):
         cwd: str | None = None,
         model: str | None = None,
         max_turns: int | None = None,
+        plugins: list[dict] | None = None,
     ) -> str:
-        """发送消息，收集完整回复"""
+        """Send message and collect complete response"""
+        effective_tools = tools or ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
+        disallowed = [] if "Skill" in effective_tools else ["Skill"]
         options = ClaudeAgentOptions(
             system_prompt=system_prompt,
-            allowed_tools=tools or ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
-            disallowed_tools=["Skill"],
+            allowed_tools=effective_tools,
+            disallowed_tools=disallowed,
             permission_mode="bypassPermissions",
             model=model,
             max_turns=max_turns,
             cwd=cwd,
-            setting_sources=[],
+            setting_sources=["user", "project"],
             env={"PYTHONIOENCODING": "utf-8"},
+            plugins=plugins or [],
         )
 
         result_text = ""
-        async for message in query(prompt=prompt, options=options):
-            if self.on_activity and isinstance(message, AssistantMessage):
-                # 通知外部有活动（用于 WebSocket 实时推送）
-                for block in message.content:
-                    if hasattr(block, "text") and block.text:
-                        preview = block.text[:100]
-                        await self.on_activity("thinking", preview)
+        try:
+            async for message in query(prompt=prompt, options=options):
+                if self.on_activity and isinstance(message, AssistantMessage):
+                    # Notify external listeners (for WebSocket real-time push)
+                    for block in message.content:
+                        if hasattr(block, "text") and block.text:
+                            preview = block.text[:100]
+                            await self.on_activity("thinking", preview)
 
-            if isinstance(message, ResultMessage):
-                result_text = message.result or ""
+                if isinstance(message, ResultMessage):
+                    result_text = message.result or ""
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            raise
 
         return result_text
 
@@ -63,18 +72,22 @@ class ClaudeProvider(BaseProvider):
         cwd: str | None = None,
         model: str | None = None,
         max_turns: int | None = None,
+        plugins: list[dict] | None = None,
     ) -> AsyncIterator[str]:
-        """流式发送消息"""
+        """Stream message"""
+        effective_tools = tools or ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
+        disallowed = [] if "Skill" in effective_tools else ["Skill"]
         options = ClaudeAgentOptions(
             system_prompt=system_prompt,
-            allowed_tools=tools or ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
-            disallowed_tools=["Skill"],
+            allowed_tools=effective_tools,
+            disallowed_tools=disallowed,
             permission_mode="bypassPermissions",
             model=model,
             max_turns=max_turns,
             cwd=cwd,
-            setting_sources=[],
+            setting_sources=["user", "project"],
             env={"PYTHONIOENCODING": "utf-8"},
+            plugins=plugins or [],
         )
 
         async for message in query(prompt=prompt, options=options):

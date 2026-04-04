@@ -1,5 +1,5 @@
 # ws/manager.py
-"""WebSocket 连接管理"""
+"""WebSocket connection management"""
 from fastapi import WebSocket
 
 

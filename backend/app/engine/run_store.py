@@ -1,5 +1,5 @@
 # engine/run_store.py
-"""运行历史持久化 — 每次 run 存为 JSON 文件"""
+"""Run history persistence — each run saved as a JSON file"""
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,7 +8,7 @@ from app.models.schemas import RunRecord
 
 
 class RunStore:
-    """管理 workspace/runs/ 目录下的运行记录"""
+    """Manage run records under workspace/runs/ directory"""
 
     def __init__(self, workspace_dir: Path):
         self.runs_dir = workspace_dir / "runs"

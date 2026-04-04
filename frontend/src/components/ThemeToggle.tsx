@@ -5,7 +5,7 @@ export default function ThemeToggle() {
   const toggleTheme = useFlowStore((s) => s.toggleTheme);
 
   return (
-    <button className="theme-toggle" onClick={toggleTheme} title="切换主题">
+    <button className="theme-toggle" onClick={toggleTheme} title="Toggle Theme">
       {theme === "dark" ? "☀" : "☾"}
     </button>
   );

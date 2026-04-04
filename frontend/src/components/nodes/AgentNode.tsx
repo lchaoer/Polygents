@@ -13,22 +13,22 @@ type AgentNodeData = {
 type AgentNodeType = Node<AgentNodeData, "agent">;
 
 const statusConfig = {
-  idle: { color: "#64748b", label: "待命" },
-  thinking: { color: "#f59e0b", label: "思考中" },
-  writing: { color: "#3b82f6", label: "执行中" },
-  completed: { color: "#22c55e", label: "完成" },
+  idle: { color: "#64748b", label: "Standby" },
+  thinking: { color: "#f59e0b", label: "Thinking" },
+  writing: { color: "#3b82f6", label: "Working" },
+  completed: { color: "#22c55e", label: "Done" },
 };
 
 const AgentNode = memo(({ id, data, selected }: NodeProps<AgentNodeType>) => {
   const { color, label } = statusConfig[data.status] || statusConfig.idle;
   const isActive = data.status === "thinking" || data.status === "writing";
   const borderColor = selected
-    ? "#6366f1"
+    ? "#00f0ff"
     : isActive
       ? color
       : data.status === "completed"
         ? "#22c55e"
-        : "#334155";
+        : "var(--border-light)";
 
   return (
     <div
@@ -40,7 +40,7 @@ const AgentNode = memo(({ id, data, selected }: NodeProps<AgentNodeType>) => {
       <div className="agent-node-header">
         <div
           className={`agent-status-dot ${isActive ? "pulsing" : ""}`}
-          style={{ backgroundColor: color }}
+          style={{ backgroundColor: color, boxShadow: `0 0 8px ${color}` }}
         />
         <span className="agent-role">{data.role}</span>
         <span className="agent-status-label" style={{ color }}>{label}</span>
@@ -50,6 +50,15 @@ const AgentNode = memo(({ id, data, selected }: NodeProps<AgentNodeType>) => {
       {data.model && (
         <div className="agent-node-model">{data.model}</div>
       )}
+
+      {data.tools && data.tools.length > 0 && (
+        <div className="agent-node-tools">
+          {data.tools.map((t) => (
+            <span key={t} className="tool-tag">{t}</span>
+          ))}
+        </div>
+      )}
+
       {data.latestActivity && (
         <div className="agent-node-preview">{data.latestActivity}</div>
       )}

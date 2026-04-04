@@ -1,16 +1,16 @@
 # ws/handler.py
-"""WebSocket 端点"""
+"""WebSocket endpoint"""
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.ws.manager import ws_manager
 
 router = APIRouter()
 
-# 由 main.py 注入
+# Injected by main.py
 _orchestrator = None
 
 
 def init_ws_handler(orchestrator):
-    """注入 orchestrator 引用"""
+    """Inject orchestrator reference"""
     global _orchestrator
     _orchestrator = orchestrator
 
@@ -29,14 +29,28 @@ async def websocket_endpoint(websocket: WebSocket):
             elif msg_type == "start_run":
                 await ws_manager.broadcast({
                     "type": "system",
-                    "data": {"message": "运行已触发"},
+                    "data": {"message": "Run triggered"},
                 })
 
             elif msg_type == "goal_decision":
-                # 用户对总验收结果的决定: accept / retry
+                # User's decision on final validation result: accept / retry
                 decision = data.get("decision", "accept")
                 if _orchestrator:
                     _orchestrator.resolve_goal_decision(decision)
+
+            elif msg_type == "pause_run":
+                if _orchestrator:
+                    await _orchestrator.pause()
+
+            elif msg_type == "resume_run":
+                if _orchestrator:
+                    await _orchestrator.resume()
+
+            elif msg_type == "intervene":
+                if _orchestrator:
+                    action = data.get("action", "")
+                    payload = data.get("payload", {})
+                    await _orchestrator.intervene(action, payload)
 
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)

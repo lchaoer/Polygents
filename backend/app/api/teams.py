@@ -1,7 +1,8 @@
 # api/teams.py
-"""团队管理 API"""
+"""Team management API"""
 import re
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 from pathlib import Path
 from typing import Optional
@@ -28,14 +29,27 @@ class TemplateData(BaseModel):
 
 
 def _safe_id(name: str) -> str:
-    """将名称转化为安全的文件名 ID"""
+    """Convert name to a safe filename ID"""
     s = re.sub(r'[^\w\-]', '-', name.lower().strip())
     return re.sub(r'-+', '-', s).strip('-') or "custom-team"
 
 
+def _check_role_types(agents: list[AgentTemplateData]) -> list[str]:
+    """Check role_type completeness, return list of warnings"""
+    role_types = {a.role_type for a in agents if a.role_type}
+    warnings = []
+    if "planner" not in role_types:
+        warnings.append("Missing planner role")
+    if "executor" not in role_types:
+        warnings.append("Missing executor role")
+    if "reviewer" not in role_types:
+        warnings.append("Missing reviewer role")
+    return warnings
+
+
 @router.get("/templates")
 async def list_templates():
-    """列出所有预设团队模板"""
+    """List all preset team templates"""
     templates = []
     if TEMPLATES_DIR.exists():
         for f in sorted(TEMPLATES_DIR.glob("*.yaml")):
@@ -52,7 +66,7 @@ async def list_templates():
 
 @router.get("/templates/{template_id}")
 async def get_template(template_id: str):
-    """获取模板详情"""
+    """Get template details"""
     file_path = TEMPLATES_DIR / f"{template_id}.yaml"
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Template not found")
@@ -62,11 +76,11 @@ async def get_template(template_id: str):
 
 @router.post("/templates")
 async def create_template(data: TemplateData):
-    """创建新模板"""
+    """Create a new template"""
     template_id = _safe_id(data.name)
     file_path = TEMPLATES_DIR / f"{template_id}.yaml"
 
-    # 如果已存在同名，追加数字
+    # If same name exists, append a number
     counter = 1
     while file_path.exists():
         template_id = f"{_safe_id(data.name)}-{counter}"
@@ -82,12 +96,12 @@ async def create_template(data: TemplateData):
     with open(file_path, "w", encoding="utf-8") as f:
         yaml.dump(content, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
-    return {"id": template_id, "status": "created"}
+    return {"id": template_id, "status": "created", "warnings": _check_role_types(data.agents)}
 
 
 @router.put("/templates/{template_id}")
 async def update_template(template_id: str, data: TemplateData):
-    """更新现有模板"""
+    """Update an existing template"""
     file_path = TEMPLATES_DIR / f"{template_id}.yaml"
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Template not found")
@@ -100,14 +114,54 @@ async def update_template(template_id: str, data: TemplateData):
     with open(file_path, "w", encoding="utf-8") as f:
         yaml.dump(content, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
-    return {"id": template_id, "status": "updated"}
+    return {"id": template_id, "status": "updated", "warnings": _check_role_types(data.agents)}
 
 
 @router.delete("/templates/{template_id}")
 async def delete_template(template_id: str):
-    """删除模板"""
+    """Delete a template"""
     file_path = TEMPLATES_DIR / f"{template_id}.yaml"
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Template not found")
     file_path.unlink()
     return {"id": template_id, "status": "deleted"}
+
+
+@router.get("/templates/{template_id}/export", response_class=PlainTextResponse)
+async def export_template(template_id: str):
+    """Export template as raw YAML"""
+    file_path = TEMPLATES_DIR / f"{template_id}.yaml"
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Template not found")
+    return file_path.read_text(encoding="utf-8")
+
+
+class ImportPayload(BaseModel):
+    yaml_text: str
+
+
+@router.post("/templates/import")
+async def import_template(payload: ImportPayload):
+    """Import template from YAML text"""
+    try:
+        data = yaml.safe_load(payload.yaml_text)
+    except yaml.YAMLError as e:
+        raise HTTPException(status_code=400, detail=f"YAML parse failed: {e}")
+
+    if not isinstance(data, dict) or "name" not in data:
+        raise HTTPException(status_code=400, detail="YAML missing 'name' field")
+
+    template_id = _safe_id(data["name"])
+    file_path = TEMPLATES_DIR / f"{template_id}.yaml"
+
+    counter = 1
+    while file_path.exists():
+        template_id = f"{_safe_id(data['name'])}-{counter}"
+        file_path = TEMPLATES_DIR / f"{template_id}.yaml"
+        counter += 1
+
+    TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+    with open(file_path, "w", encoding="utf-8") as f:
+        yaml.dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+    return {"id": template_id, "status": "imported"}

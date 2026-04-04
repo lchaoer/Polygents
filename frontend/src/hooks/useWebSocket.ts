@@ -1,11 +1,10 @@
 import { useEffect, useRef, useCallback } from "react";
 import useFlowStore from "../store/flowStore";
 import type { WSMessage } from "../types";
-import { isRunStatus, isGoalValidation, isAgentActivity, isFileChange } from "../types";
+import { isRunStatus, isGoalValidation, isAgentActivity, isFileChange, isTaskUpdate } from "../types";
+import { WS_URL } from "../config";
 
-const WS_URL = "ws://127.0.0.1:8001/ws";
-
-// 全局递增标识，每次 effect 运行时递增，用于防止 React StrictMode 双重挂载导致多连接
+// Global generation counter, incremented each effect run to prevent duplicate connections from React StrictMode double-mount
 let generationCounter = 0;
 
 export function useWebSocket() {
@@ -16,42 +15,70 @@ export function useWebSocket() {
     const gen = ++generationCounter;
 
     const connect = () => {
-      // 如果 generation 已过期（被新的 effect 取代），不再建连
+      // If generation is outdated (replaced by new effect), don't connect
       if (gen !== generationCounter) return;
 
       const ws = new WebSocket(WS_URL);
 
       ws.onopen = () => {
-        console.log("WebSocket connected (gen=" + gen + ")");
+        useFlowStore.getState().setWsConnected(true);
       };
 
       ws.onmessage = (event) => {
-        const msg: WSMessage = JSON.parse(event.data);
+        let msg: WSMessage;
+        try {
+          msg = JSON.parse(event.data);
+        } catch {
+          return;
+        }
         const s = useFlowStore.getState();
 
         if (msg.type === "pong") return;
 
-        // 文件变更事件 — 通知 workspace 刷新
+        // File change event — notify workspace refresh
         if (isFileChange(msg)) {
           s.bumpWorkspaceVersion();
           return;
         }
 
-        // 运行状态 — 更新顶部状态 + 加入活动流
+        // Run status — update top bar status + add to activity feed + extract progress
         if (isRunStatus(msg)) {
           s.setRunStatus(msg.data.status, msg.data.detail);
           s.setGoalReport(null);
+          if (msg.data.run_id) s.setRunId(msg.data.run_id);
+
+          // Pause/resume state
+          if (msg.data.status === "paused") {
+            s.setIsPaused(true);
+          } else if (s.isPaused) {
+            s.setIsPaused(false);
+          }
+
+          // Extract progress info
+          const detail = msg.data.detail;
+          const taskCountMatch = detail.match(/Parsed\s*(\d+)\s*tasks/);
+          if (taskCountMatch) {
+            s.setProgress(parseInt(taskCountMatch[1]), 0, "");
+          }
+          if (detail.startsWith("Executing task:")) {
+            const state = useFlowStore.getState();
+            s.setProgress(state.totalTasks, state.completedTasks, detail.replace("Executing task:", "").trim());
+          }
+          if (detail.startsWith("Task approved:") || detail.startsWith("Task exceeded max retries:")) {
+            s.incrementCompleted();
+          }
+
           s.addActivity(msg);
           return;
         }
 
-        // Goal 验收 — 只走弹窗，不加入活动流
+        // Goal validation — show popup only, don't add to activity feed
         if (isGoalValidation(msg)) {
           s.setGoalReport(msg.data.detail);
           return;
         }
 
-        // Agent 活动 — 更新节点状态 + 存入 per-agent 记录 + 加入全局活动流
+        // Agent activity — update node status + store per-agent record + add to global activity feed
         if (isAgentActivity(msg)) {
           s.updateAgentStatus(msg.data.agent_id, msg.data.action, msg.data.detail);
           s.addAgentActivity(msg);
@@ -59,14 +86,26 @@ export function useWebSocket() {
           return;
         }
 
-        // 其他消息（system 等）
+        // Task status change — update kanban
+        if (isTaskUpdate(msg)) {
+          s.updateTask({
+            task_id: msg.data.task_id,
+            description: msg.data.description,
+            status: msg.data.status,
+            assignee: msg.data.assignee,
+            attempt: msg.data.attempt,
+          });
+          return;
+        }
+
+        // Other messages (system, etc.)
         s.addActivity(msg);
       };
 
       ws.onclose = () => {
-        // 只有当前 generation 仍然有效时才重连
+        // Only reconnect if current generation is still valid
         if (gen !== generationCounter) return;
-        console.log("WebSocket disconnected, reconnecting...");
+        useFlowStore.getState().setWsConnected(false);
         reconnectTimer.current = setTimeout(connect, 3000);
       };
 
@@ -76,7 +115,7 @@ export function useWebSocket() {
     connect();
 
     return () => {
-      // 递增 generation 使当前连接的异步回调失效
+      // Increment generation to invalidate async callbacks of current connection
       generationCounter++;
       clearTimeout(reconnectTimer.current);
       wsRef.current?.close();

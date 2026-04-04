@@ -1,11 +1,18 @@
-import { useCallback } from "react";
-import { ReactFlow, Background, BackgroundVariant, Controls, MiniMap, type Node } from "@xyflow/react";
+import { useCallback, type DragEvent } from "react";
+import { ReactFlow, Background, BackgroundVariant, Controls, MiniMap, type Node, useReactFlow } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import AgentNode from "./nodes/AgentNode";
 import useFlowStore from "../store/flowStore";
 import { useShallow } from "zustand/react/shallow";
 
 const nodeTypes = { agent: AgentNode };
+
+const ROLE_TYPE_LABELS: Record<string, string> = {
+  planner: "Planner",
+  executor: "Executor",
+  reviewer: "Reviewer",
+  custom: "Custom",
+};
 
 export default function Canvas() {
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, theme } = useFlowStore(
@@ -20,6 +27,8 @@ export default function Canvas() {
   );
 
   const setSelectedNode = useFlowStore((s) => s.setSelectedNode);
+  const addNode = useFlowStore((s) => s.addNode);
+  const { screenToFlowPosition } = useReactFlow();
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => setSelectedNode(node.id),
@@ -30,6 +39,23 @@ export default function Canvas() {
     () => setSelectedNode(null),
     [setSelectedNode]
   );
+
+  const onDragOver = useCallback((e: DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  }, []);
+
+  const onDrop = useCallback((e: DragEvent) => {
+    e.preventDefault();
+    const roleType = e.dataTransfer.getData("application/polygents-role");
+    if (!roleType) return;
+
+    const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    const id = `${roleType}-${Date.now().toString(36)}`;
+    const role = ROLE_TYPE_LABELS[roleType] || roleType;
+    addNode(id, role, roleType, position);
+    setSelectedNode(id);
+  }, [screenToFlowPosition, addNode, setSelectedNode]);
 
   const isDark = theme === "dark";
 
@@ -43,6 +69,8 @@ export default function Canvas() {
       onConnect={onConnect}
       onNodeClick={onNodeClick}
       onPaneClick={onPaneClick}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
       fitView
     >
       <Background variant={BackgroundVariant.Dots} gap={20} size={1} color={isDark ? "#334155" : "#cbd5e1"} />

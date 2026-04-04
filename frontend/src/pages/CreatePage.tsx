@@ -1,9 +1,13 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import ThemeToggle from "../components/ThemeToggle";
+import MetaAgentChat from "../components/MetaAgentChat";
+import TeamPreview from "../components/TeamPreview";
+import useFlowStore from "../store/flowStore";
+import { API_BASE } from "../config";
 
-const AVAILABLE_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"];
-const ROLE_TYPES = ["planner", "executor", "reviewer"];
+const AVAILABLE_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "Skill"];
+const ROLE_TYPES = ["planner", "executor", "reviewer", "tester", "designer", "researcher"];
 
 interface AgentForm {
   id: string;
@@ -12,6 +16,8 @@ interface AgentForm {
   model: string;
   system_prompt: string;
   tools: string[];
+  skills: string[];
+  plugins: string[];
 }
 
 const emptyAgent = (): AgentForm => ({
@@ -21,27 +27,61 @@ const emptyAgent = (): AgentForm => ({
   model: "",
   system_prompt: "",
   tools: [],
+  skills: [],
+  plugins: [],
 });
 
 export default function CreatePage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const editId = params.get("edit");
+  const mode = params.get("mode"); // "chat" = chat mode
+  const addToast = useFlowStore((s) => s.addToast);
 
+  // ── Chat mode state ──
+  const [chatSessionId, setChatSessionId] = useState<string | null>(null);
+  const [teamPreviewConfig, setTeamPreviewConfig] = useState<Record<string, unknown> | null>(null);
+  const [finalizing, setFinalizing] = useState(false);
+  const [teamCreated, setTeamCreated] = useState<{
+    template_id: string;
+    name: string;
+    agents_created: string[];
+  } | null>(null);
+
+  // ── Form mode state (all Hooks must be declared before conditional returns) ──
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [executionMode, setExecutionMode] = useState("sequential");
   const [agents, setAgents] = useState<AgentForm[]>([emptyAgent()]);
   const [showYaml, setShowYaml] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const importRef = useRef<HTMLInputElement>(null);
+  const [availableSkills, setAvailableSkills] = useState<{name: string; description: string; source: string}[]>([]);
+  const [availablePlugins, setAvailablePlugins] = useState<{name: string; scope: string; install_path: string; version: string}[]>([]);
 
-  // 编辑模式：加载现有模板
+  // Load available skills + plugins
+  useEffect(() => {
+    fetch(`${API_BASE}/api/skills/available`)
+      .then((r) => r.json())
+      .then(setAvailableSkills)
+      .catch(() => {});
+    fetch(`${API_BASE}/api/plugins/available`)
+      .then((r) => r.json())
+      .then(setAvailablePlugins)
+      .catch(() => {});
+  }, []);
+
+  // Edit mode: load existing template
   useEffect(() => {
     if (!editId) return;
-    fetch(`http://127.0.0.1:8001/api/teams/templates/${editId}`)
+    fetch(`${API_BASE}/api/teams/templates/${editId}`)
       .then((r) => r.json())
       .then((data) => {
         setName(data.name || "");
         setDescription(data.description || "");
+        setExecutionMode(data.execution_mode || "sequential");
         setAgents(
           (data.agents || []).map((a: any) => ({
             id: a.id || "",
@@ -50,10 +90,12 @@ export default function CreatePage() {
             model: a.model || "",
             system_prompt: a.system_prompt || "",
             tools: a.tools || [],
+            skills: a.skills || [],
+            plugins: a.plugins || [],
           }))
         );
       })
-      .catch(console.error);
+      .catch(() => addToast("error", "Failed to load template data"));
   }, [editId]);
 
   const updateAgent = (idx: number, field: keyof AgentForm, value: any) => {
@@ -67,7 +109,30 @@ export default function CreatePage() {
       prev.map((a, i) => {
         if (i !== idx) return a;
         const has = a.tools.includes(tool);
-        return { ...a, tools: has ? a.tools.filter((t) => t !== tool) : [...a.tools, tool] };
+        const newTools = has ? a.tools.filter((t) => t !== tool) : [...a.tools, tool];
+        // Clear selected skills when Skill tool is deselected
+        const newSkills = newTools.includes("Skill") ? a.skills : [];
+        return { ...a, tools: newTools, skills: newSkills };
+      })
+    );
+  };
+
+  const toggleSkill = (idx: number, skillName: string) => {
+    setAgents((prev) =>
+      prev.map((a, i) => {
+        if (i !== idx) return a;
+        const has = a.skills.includes(skillName);
+        return { ...a, skills: has ? a.skills.filter((s) => s !== skillName) : [...a.skills, skillName] };
+      })
+    );
+  };
+
+  const togglePlugin = (idx: number, pluginName: string) => {
+    setAgents((prev) =>
+      prev.map((a, i) => {
+        if (i !== idx) return a;
+        const has = a.plugins.includes(pluginName);
+        return { ...a, plugins: has ? a.plugins.filter((p) => p !== pluginName) : [...a.plugins, pluginName] };
       })
     );
   };
@@ -78,6 +143,30 @@ export default function CreatePage() {
     if (agents.length <= 1) return;
     setAgents((prev) => prev.filter((_, i) => i !== idx));
   };
+
+  const validate = useCallback((): boolean => {
+    const errs: Record<string, string> = {};
+    const warns: string[] = [];
+
+    if (!name.trim()) errs.name = "Team name is required";
+
+    const ids = new Set<string>();
+    agents.forEach((a, i) => {
+      if (!a.role.trim()) errs[`agent-${i}-role`] = "Role name is required";
+      if (!a.id.trim()) errs[`agent-${i}-id`] = "ID is required";
+      if (ids.has(a.id.trim())) errs[`agent-${i}-id`] = "Duplicate ID";
+      ids.add(a.id.trim());
+    });
+
+    const roleTypes = agents.map((a) => a.role_type).filter(Boolean);
+    if (!roleTypes.includes("planner")) warns.push("Missing planner role");
+    if (!roleTypes.includes("executor")) warns.push("Missing executor role");
+    if (!roleTypes.includes("reviewer")) warns.push("Missing reviewer role");
+
+    setErrors(errs);
+    setWarnings(warns);
+    return Object.keys(errs).length === 0;
+  }, [name, agents]);
 
   const generateYaml = useCallback(() => {
     const data = {
@@ -92,8 +181,7 @@ export default function CreatePage() {
         return obj;
       }),
     };
-    // 简单的 YAML 序列化
-    let yaml = `name: "${data.name}"\ndescription: "${data.description}"\nagents:\n`;
+    let yaml = `name: "${data.name}"\ndescription: "${data.description}"\nexecution_mode: ${executionMode}\nagents:\n`;
     for (const agent of data.agents) {
       yaml += `  - id: ${agent.id}\n`;
       yaml += `    role: "${agent.role}"\n`;
@@ -111,12 +199,123 @@ export default function CreatePage() {
     return yaml;
   }, [name, description, agents]);
 
+  const handleImportYaml = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const res = await fetch(`${API_BASE}/api/teams/templates/import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ yaml_text: text }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || "Import failed");
+      }
+      const data = await res.json();
+      addToast("success", `Template imported: ${data.id}`);
+      navigate("/");
+    } catch (err: any) {
+      addToast("error", err.message);
+    }
+    if (importRef.current) importRef.current.value = "";
+  };
+
+  const handleFinalize = async () => {
+    if (!chatSessionId || !teamPreviewConfig) return;
+    setFinalizing(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/meta-agent/finalize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: chatSessionId }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || "Save failed");
+      }
+      const result = await res.json();
+      addToast("success", `Team created: ${result.name || result.template_id}`);
+      navigate(`/canvas?template=${result.template_id}`);
+    } catch (err: any) {
+      addToast("error", err.message);
+    } finally {
+      setFinalizing(false);
+    }
+  };
+
+  // ── Chat mode UI ──
+  if (mode === "chat" && !editId) {
+    return (
+      <div className="create-page create-dialog-layout">
+        <ThemeToggle />
+        <div className="create-header">
+          <button className="history-back-btn" onClick={() => navigate("/")}>
+            &larr; Back to Home
+          </button>
+          <h1>Chat-based Team Creation</h1>
+          <button
+            className="create-save-btn"
+            onClick={() => navigate("/create")}
+          >
+            Switch to Form Mode
+          </button>
+        </div>
+
+        <div className="create-dialog-body">
+          <div className="create-dialog-chat">
+            <MetaAgentChat
+              sessionId={chatSessionId}
+              onSessionId={setChatSessionId}
+              onTeamPreview={setTeamPreviewConfig}
+              onTeamCreated={(data) => {
+                setTeamCreated(data);
+                addToast("success", `Team "${data.name}" auto-created (${data.agents_created.length} Agents)`);
+              }}
+            />
+          </div>
+          <div className="create-dialog-preview">
+            <TeamPreview config={teamPreviewConfig} />
+            {teamCreated ? (
+              <div className="team-created-banner">
+                <div className="team-created-info">
+                  Team '{teamCreated.name}' created ({teamCreated.agents_created.length} Agents)
+                </div>
+                <button
+                  className="create-save-btn create-go-canvas-btn"
+                  onClick={() => navigate(`/canvas?template=${teamCreated.template_id}`)}
+                >
+                  Go to Canvas
+                </button>
+                <div className="team-created-hint">
+                  Continue chatting to modify team config
+                </div>
+              </div>
+            ) : teamPreviewConfig ? (
+              <button
+                className="create-save-btn create-finalize-btn"
+                onClick={handleFinalize}
+                disabled={finalizing}
+              >
+                {finalizing ? "Saving..." : "Confirm & Go to Canvas"}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Form mode UI ──
+
   const handleSave = async () => {
-    if (!name.trim()) return;
+    if (!validate()) return;
     setSaving(true);
     const body = {
       name: name.trim(),
       description: description.trim(),
+      execution_mode: executionMode,
       agents: agents.map((a) => ({
         id: a.id,
         role: a.role,
@@ -124,23 +323,31 @@ export default function CreatePage() {
         model: a.model || null,
         system_prompt: a.system_prompt,
         tools: a.tools,
+        skills: a.skills,
+        plugins: a.plugins,
       })),
     };
 
     const url = editId
-      ? `http://127.0.0.1:8001/api/teams/templates/${editId}`
-      : "http://127.0.0.1:8001/api/teams/templates";
+      ? `${API_BASE}/api/teams/templates/${editId}`
+      : `${API_BASE}/api/teams/templates`;
     const method = editId ? "PUT" : "POST";
 
     try {
-      await fetch(url, {
+      const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+      if (!res.ok) throw new Error("Save failed");
+      const result = await res.json();
+      addToast("success", editId ? "Template updated" : "Template created");
+      if (result.warnings && result.warnings.length > 0) {
+        addToast("info", "Note: " + result.warnings.join("、"));
+      }
       navigate("/");
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      addToast("error", e.message || "Save failed");
     } finally {
       setSaving(false);
     }
@@ -151,36 +358,64 @@ export default function CreatePage() {
       <ThemeToggle />
       <div className="create-header">
         <button className="history-back-btn" onClick={() => navigate("/")}>
-          &larr; 返回首页
+          &larr; Back to Home
         </button>
-        <h1>{editId ? "编辑模板" : "创建自定义团队"}</h1>
+        <h1>{editId ? "Edit Template" : "Create Custom Team"}</h1>
+        {!editId && (
+          <>
+            <input
+              ref={importRef}
+              type="file"
+              accept=".yaml,.yml"
+              style={{ display: "none" }}
+              onChange={handleImportYaml}
+            />
+            <button className="create-import-btn" onClick={() => importRef.current?.click()}>
+              Import from YAML
+            </button>
+          </>
+        )}
       </div>
 
       <div className="create-form">
         <div className="create-field">
-          <label className="config-label">团队名称</label>
+          <label className="config-label">Team Name</label>
           <input
             className="create-input"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="如：前端开发团队"
+            placeholder="e.g.: Frontend Dev Team"
           />
+          {errors.name && <span className="field-error">{errors.name}</span>}
         </div>
 
         <div className="create-field">
-          <label className="config-label">描述</label>
+          <label className="config-label">Description</label>
           <input
             className="create-input"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="团队用途描述"
+            placeholder="Team purpose description"
           />
+        </div>
+
+        <div className="create-field">
+          <label className="config-label">Execution Mode</label>
+          <select
+            className="create-select"
+            value={executionMode}
+            onChange={(e) => setExecutionMode(e.target.value)}
+          >
+            <option value="sequential">Sequential</option>
+            <option value="parallel">Parallel</option>
+            <option value="free">Free Collaboration</option>
+          </select>
         </div>
 
         <div className="create-agents-section">
           <div className="create-agents-header">
-            <label className="config-label">Agent 列表</label>
-            <button className="create-add-btn" onClick={addAgent}>+ 添加 Agent</button>
+            <label className="config-label">Agent List</label>
+            <button className="create-add-btn" onClick={addAgent}>+ Add Agent</button>
           </div>
 
           {agents.map((agent, idx) => (
@@ -189,7 +424,7 @@ export default function CreatePage() {
                 <span className="create-agent-idx">Agent #{idx + 1}</span>
                 {agents.length > 1 && (
                   <button className="create-remove-btn" onClick={() => removeAgent(idx)}>
-                    删除
+                    Delete
                   </button>
                 )}
               </div>
@@ -204,40 +439,44 @@ export default function CreatePage() {
                       onChange={(e) => updateAgent(idx, "id", e.target.value)}
                       placeholder="agent-id"
                     />
+                    {errors[`agent-${idx}-id`] && <span className="field-error">{errors[`agent-${idx}-id`]}</span>}
                   </div>
                   <div className="create-field">
-                    <label className="config-label">角色名</label>
+                    <label className="config-label">Role Name</label>
                     <input
                       className="create-input"
                       value={agent.role}
                       onChange={(e) => updateAgent(idx, "role", e.target.value)}
-                      placeholder="如：项目经理"
+                      placeholder="e.g.: Project Manager"
                     />
+                    {errors[`agent-${idx}-role`] && <span className="field-error">{errors[`agent-${idx}-role`]}</span>}
                   </div>
                 </div>
 
                 <div className="create-field-row">
                   <div className="create-field">
-                    <label className="config-label">角色类型</label>
-                    <select
-                      className="create-select"
+                    <label className="config-label">Role Type</label>
+                    <input
+                      className="create-input"
+                      list={`role-types-${idx}`}
                       value={agent.role_type}
                       onChange={(e) => updateAgent(idx, "role_type", e.target.value)}
-                    >
-                      <option value="">不指定</option>
+                      placeholder="Enter or select role type"
+                    />
+                    <datalist id={`role-types-${idx}`}>
                       {ROLE_TYPES.map((rt) => (
-                        <option key={rt} value={rt}>{rt}</option>
+                        <option key={rt} value={rt} />
                       ))}
-                    </select>
+                    </datalist>
                   </div>
                   <div className="create-field">
-                    <label className="config-label">模型</label>
+                    <label className="config-label">Model</label>
                     <select
                       className="create-select"
                       value={agent.model}
                       onChange={(e) => updateAgent(idx, "model", e.target.value)}
                     >
-                      <option value="">默认</option>
+                      <option value="">Default</option>
                       <option value="claude-opus-4-6">claude-opus-4-6</option>
                       <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
                       <option value="claude-haiku-4-5-20251001">claude-haiku-4-5</option>
@@ -246,18 +485,18 @@ export default function CreatePage() {
                 </div>
 
                 <div className="create-field">
-                  <label className="config-label">系统提示词</label>
+                  <label className="config-label">System Prompt</label>
                   <textarea
                     className="create-textarea"
                     value={agent.system_prompt}
                     onChange={(e) => updateAgent(idx, "system_prompt", e.target.value)}
-                    placeholder="描述这个 Agent 的职责和工作方式..."
+                    placeholder="Describe this Agent's responsibilities and workflow..."
                     rows={4}
                   />
                 </div>
 
                 <div className="create-field">
-                  <label className="config-label">工具</label>
+                  <label className="config-label">Tools</label>
                   <div className="create-tools">
                     {AVAILABLE_TOOLS.map((tool) => (
                       <label key={tool} className="create-tool-checkbox">
@@ -271,24 +510,68 @@ export default function CreatePage() {
                     ))}
                   </div>
                 </div>
+
+                {agent.tools.includes("Skill") && availableSkills.length > 0 && (
+                  <div className="create-field">
+                    <label className="config-label">Skills</label>
+                    <div className="skill-selector">
+                      {availableSkills.map((sk) => (
+                        <label key={`${sk.source}-${sk.name}`} className="skill-check-item">
+                          <input
+                            type="checkbox"
+                            checked={agent.skills.includes(sk.name)}
+                            onChange={() => toggleSkill(idx, sk.name)}
+                          />
+                          <span>{sk.name}</span>
+                          <span className={`skill-source-tag skill-source-${sk.source}`}>{sk.source}</span>
+                          {sk.description && <span className="skill-desc">{sk.description}</span>}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {availablePlugins.length > 0 && (
+                  <div className="create-field">
+                    <label className="config-label">Plugins</label>
+                    <div className="plugin-selector">
+                      {availablePlugins.map((pl) => (
+                        <label key={`${pl.scope}-${pl.name}`} className="plugin-check-item">
+                          <input
+                            type="checkbox"
+                            checked={agent.plugins.includes(pl.name)}
+                            onChange={() => togglePlugin(idx, pl.name)}
+                          />
+                          <span>{pl.name}</span>
+                          <span className={`plugin-scope-tag plugin-scope-${pl.scope}`}>{pl.scope}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           ))}
         </div>
 
         <div className="create-actions">
+          {warnings.length > 0 && (
+            <div className="field-warning">
+              {warnings.join("、")} — may cause orchestration issues
+            </div>
+          )}
           <button
             className="create-yaml-btn"
             onClick={() => setShowYaml(!showYaml)}
           >
-            {showYaml ? "隐藏 YAML" : "预览 YAML"}
+            {showYaml ? "Hide YAML" : "Preview YAML"}
           </button>
           <button
             className="create-save-btn"
             onClick={handleSave}
             disabled={saving || !name.trim()}
           >
-            {saving ? "保存中..." : editId ? "更新模板" : "保存模板"}
+            {saving ? "Saving..." : editId ? "Update Template" : "Save Template"}
           </button>
         </div>
 

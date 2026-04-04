@@ -1,11 +1,11 @@
 # providers/base.py
-"""Provider 抽象接口"""
+"""Provider abstract interface"""
 from abc import ABC, abstractmethod
 from typing import AsyncIterator
 
 
 class BaseProvider(ABC):
-    """LLM Provider 统一抽象"""
+    """LLM Provider unified abstraction"""
 
     @abstractmethod
     async def send_message(
@@ -16,8 +16,9 @@ class BaseProvider(ABC):
         cwd: str | None = None,
         model: str | None = None,
         max_turns: int | None = None,
+        plugins: list[dict] | None = None,
     ) -> str:
-        """发送消息，获取完整回复"""
+        """Send message and get complete response"""
         ...
 
     @abstractmethod
@@ -29,6 +30,7 @@ class BaseProvider(ABC):
         cwd: str | None = None,
         model: str | None = None,
         max_turns: int | None = None,
+        plugins: list[dict] | None = None,
     ) -> AsyncIterator[str]:
-        """流式发送消息"""
+        """Stream message"""
         ...

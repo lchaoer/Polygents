@@ -1,17 +1,18 @@
-# 在模块顶层设置 Windows 环境（必须在任何 asyncio/SDK 操作之前）
+# Setup Windows environment at module level (must run before any asyncio/SDK operations)
 import sys
 from app.config import setup_windows_env
 setup_windows_env()
 
-"""Polygents 后端入口"""
+"""Polygents backend entry point"""
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import HOST, PORT, WORKSPACE_DIR, MAX_RETRIES
+from app.config import HOST, PORT, WORKSPACE_DIR, PROJECT_DIR, MAX_RETRIES
 from app.ws.handler import router as ws_router, init_ws_handler
 from app.ws.manager import ws_manager
 from app.engine.file_watcher import watch_workspace
@@ -23,52 +24,112 @@ from app.api.router import api_router
 from app.api.runs import init_run_api
 from app.engine.run_store import RunStore
 from app.api.workspace import init_workspace_api
+from app.engine.meta_agent import MetaAgent
+from app.api.meta_agent import init_meta_agent_api
+from app.api.agents import init_agents_api
+from app.api.logs import init_logs_api
+from app.engine.free_orchestrator import FreeOrchestrator
+from app.engine.workflow_store import WorkflowStore
+from app.engine.single_runner import SingleRunner
+from app.api.workflows import init_workflow_api
+from app.api.skills import init_skills_api
 
-# 全局实例
+# Global instances
 file_comm = FileComm(WORKSPACE_DIR)
 provider = ClaudeProvider()
 agent_manager = AgentManager(provider=provider, file_comm=file_comm)
 run_store = RunStore(WORKSPACE_DIR)
+workflow_store = WorkflowStore(WORKSPACE_DIR)
 orchestrator = Orchestrator(
     agent_manager=agent_manager, file_comm=file_comm,
     max_retries=MAX_RETRIES, run_store=run_store,
+)
+free_orchestrator = FreeOrchestrator(
+    agent_manager=agent_manager, file_comm=file_comm,
+    run_store=run_store,
+)
+single_runner = SingleRunner(
+    agent_manager=agent_manager, file_comm=file_comm,
+    run_store=run_store,
 )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 初始化工作目录
+    # Initialize workspace directory
     file_comm.init_workspace()
 
-    # 启动文件监控
+    # Start file watcher
     watcher_task = asyncio.create_task(watch_workspace(str(WORKSPACE_DIR)))
 
-    # 连接 orchestrator 状态通知到 WebSocket
+    # Connect orchestrator status notifications to WebSocket
     async def on_status(status: str, detail: str):
-        # goal_not_met 用独立消息类型，前端好区分
+        run_id = (
+            orchestrator._current_run_id
+            or single_runner._current_run_id
+            or free_orchestrator._current_run_id
+        )
+        ts = datetime.now(timezone.utc).isoformat()
+        # goal_not_met uses a separate message type for frontend distinction
         if status == "goal_not_met":
             msg_type = "goal_validation"
         else:
             msg_type = "run_status"
         await ws_manager.broadcast({
             "type": msg_type,
-            "data": {"status": status, "detail": detail},
+            "data": {"status": status, "detail": detail, "run_id": run_id, "timestamp": ts},
         })
     orchestrator.on_status = on_status
+    free_orchestrator.on_status = on_status
+    single_runner.on_status = on_status
 
-    # 连接 Agent 活动通知到 WebSocket
+    # Connect Agent activity notifications to WebSocket
     async def on_activity(agent_id: str, action: str, detail: str):
+        run_id = (
+            orchestrator._current_run_id
+            or single_runner._current_run_id
+            or free_orchestrator._current_run_id
+        )
+        ts = datetime.now(timezone.utc).isoformat()
         await ws_manager.broadcast({
             "type": "agent_activity",
-            "data": {"agent_id": agent_id, "action": action, "detail": detail},
+            "data": {"agent_id": agent_id, "action": action, "detail": detail, "run_id": run_id, "timestamp": ts},
         })
     agent_manager.on_activity = on_activity
 
-    # 注入依赖到 API
-    init_run_api(orchestrator, agent_manager, file_comm, run_store)
-    init_workspace_api(WORKSPACE_DIR)
+    # Connect task status notifications to WebSocket
+    async def on_task_update(task_id: str, description: str, status: str, assignee: str, attempt: int):
+        run_id = (
+            orchestrator._current_run_id
+            or single_runner._current_run_id
+            or free_orchestrator._current_run_id
+        )
+        ts = datetime.now(timezone.utc).isoformat()
+        await ws_manager.broadcast({
+            "type": "task_update",
+            "data": {
+                "task_id": task_id, "description": description,
+                "status": status, "assignee": assignee,
+                "attempt": attempt, "run_id": run_id, "timestamp": ts,
+            },
+        })
+    orchestrator.on_task_update = on_task_update
 
-    # 注入 orchestrator 到 WebSocket handler
+    # Inject dependencies into API
+    init_run_api(orchestrator, agent_manager, file_comm, run_store, free_orchestrator=free_orchestrator)
+    init_workspace_api(WORKSPACE_DIR)
+    init_agents_api(agent_manager, file_comm)
+    init_logs_api(WORKSPACE_DIR)
+    meta_agent = MetaAgent(provider=provider, agent_manager=agent_manager, file_comm=file_comm)
+    init_meta_agent_api(meta_agent)
+    init_workflow_api(
+        workflow_store, single_runner, orchestrator,
+        agent_manager, file_comm, run_store,
+        free_orchestrator=free_orchestrator,
+    )
+    init_skills_api(WORKSPACE_DIR, PROJECT_DIR)
+
+    # Inject orchestrator into WebSocket handler
     init_ws_handler(orchestrator)
 
     print(f"Polygents backend started. Workspace: {WORKSPACE_DIR}")
@@ -86,13 +147,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 路由
+# Routes
 app.include_router(api_router, prefix="/api")
 app.include_router(ws_router)
 
 
 if __name__ == "__main__":
     import uvicorn
-    # Windows 下不能用 reload 模式（会重置 event loop policy 导致 subprocess 失败）
+    # Cannot use reload mode on Windows (resets event loop policy, causing subprocess failures)
     use_reload = sys.platform != "win32"
     uvicorn.run("app.main:app", host=HOST, port=PORT, reload=use_reload)

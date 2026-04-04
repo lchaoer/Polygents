@@ -1,5 +1,5 @@
 # api/workspace.py
-"""Workspace 文件浏览 API"""
+"""Workspace file browser API"""
 import os
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
@@ -15,7 +15,7 @@ def init_workspace_api(workspace_dir: Path):
 
 
 def _build_tree(root: Path, rel: Path | None = None) -> list[dict]:
-    """递归构建目录树（排除 .polygents 和 runs 目录）"""
+    """Recursively build directory tree (excluding .polygents and runs directories)"""
     base = root / rel if rel else root
     if not base.is_dir():
         return []
@@ -52,33 +52,33 @@ def _build_tree(root: Path, rel: Path | None = None) -> list[dict]:
 
 @router.get("/tree")
 async def get_tree():
-    """返回 workspace 目录树"""
+    """Return workspace directory tree"""
     if not _workspace_dir or not _workspace_dir.exists():
         return []
     return _build_tree(_workspace_dir)
 
 
 @router.get("/file")
-async def get_file(path: str = Query(..., description="文件相对路径")):
-    """读取文件内容"""
+async def get_file(path: str = Query(..., description="Relative file path")):
+    """Read file content"""
     if not _workspace_dir:
         raise HTTPException(status_code=500, detail="Workspace not configured")
 
-    # 路径穿越防护
+    # Path traversal protection
     full = (_workspace_dir / path).resolve()
     if not str(full).startswith(str(_workspace_dir.resolve())):
-        raise HTTPException(status_code=403, detail="路径越界")
+        raise HTTPException(status_code=403, detail="Path out of bounds")
 
     if not full.is_file():
-        raise HTTPException(status_code=404, detail="文件不存在")
+        raise HTTPException(status_code=404, detail="File not found")
 
-    # 大小限制 1MB
+    # Size limit 1MB
     if full.stat().st_size > 1_048_576:
-        raise HTTPException(status_code=413, detail="文件过大（>1MB）")
+        raise HTTPException(status_code=413, detail="File too large (>1MB)")
 
     try:
         content = full.read_text(encoding="utf-8")
     except UnicodeDecodeError:
-        content = "(二进制文件，无法预览)"
+        content = "(Binary file, cannot preview)"
 
     return {"path": path, "content": content}

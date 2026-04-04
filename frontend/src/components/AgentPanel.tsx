@@ -1,11 +1,12 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import useFlowStore from "../store/flowStore";
 
 const actionConfig: Record<string, { color: string; label: string }> = {
-  thinking: { color: "#f59e0b", label: "思考" },
-  writing: { color: "#3b82f6", label: "执行" },
-  reading: { color: "#06b6d4", label: "阅读" },
-  completed: { color: "#22c55e", label: "完成" },
+  thinking: { color: "#f59e0b", label: "Thinking" },
+  writing: { color: "#3b82f6", label: "Writing" },
+  reading: { color: "#06b6d4", label: "Reading" },
+  completed: { color: "#22c55e", label: "Done" },
 };
 
 export default function AgentPanel() {
@@ -14,6 +15,7 @@ export default function AgentPanel() {
   const nodes = useFlowStore((s) => s.nodes);
   const agentActivities = useFlowStore((s) => s.agentActivities);
   const setSelectedNode = useFlowStore((s) => s.setSelectedNode);
+  const navigate = useNavigate();
 
   const node = nodes.find((n) => n.id === selectedNodeId);
   if (!node) return null;
@@ -27,10 +29,10 @@ export default function AgentPanel() {
   };
 
   const statusLabel: Record<string, string> = {
-    idle: "待命",
-    thinking: "思考中",
-    writing: "执行中",
-    completed: "完成",
+    idle: "Standby",
+    thinking: "Thinking",
+    writing: "Working",
+    completed: "Done",
   };
 
   const statusColor: Record<string, string> = {
@@ -44,7 +46,7 @@ export default function AgentPanel() {
 
   return (
     <div className="side-panel">
-      {/* 头部 */}
+      {/* Header */}
       <div className="panel-header">
         <div className="panel-header-info">
           <div
@@ -61,28 +63,50 @@ export default function AgentPanel() {
         </button>
       </div>
 
-      {/* Tab 栏 */}
+      {/* Detail link */}
+      <div style={{ padding: "8px 24px 0", flexShrink: 0, display: "flex", gap: 10 }}>
+        <button
+          className="create-dialog-back"
+          onClick={() => navigate(`/agent/${selectedNodeId}`)}
+          style={{ fontSize: 12 }}
+        >
+          View Full Details →
+        </button>
+        <button
+          className="create-remove-btn"
+          onClick={() => {
+            if (confirm("Delete this Agent?")) {
+              useFlowStore.getState().removeNode(selectedNodeId!);
+            }
+          }}
+          style={{ fontSize: 12 }}
+        >
+          Delete
+        </button>
+      </div>
+
+      {/* Tab bar */}
       <div className="panel-tabs">
         <button
           className={`panel-tab ${tab === "thinking" ? "active" : ""}`}
           onClick={() => setTab("thinking")}
         >
-          思考过程
+          Thinking
         </button>
         <button
           className={`panel-tab ${tab === "config" ? "active" : ""}`}
           onClick={() => setTab("config")}
         >
-          配置
+          Config
         </button>
       </div>
 
-      {/* 内容区 */}
+      {/* Content area */}
       <div className="panel-content">
         {tab === "thinking" ? (
           <div className="thinking-feed">
             {activities.length === 0 ? (
-              <p className="thinking-empty">等待 Agent 开始工作...</p>
+              <p className="thinking-empty">Waiting for Agent to start...</p>
             ) : (
               [...activities].reverse().map((a, i) => {
                 const cfg = actionConfig[a.data.action] || actionConfig.thinking;
@@ -103,9 +127,9 @@ export default function AgentPanel() {
           </div>
         ) : (
           <div className="config-content">
-            <label className="config-label">模型</label>
+            <label className="config-label">Model</label>
             <div className="config-model">
-              <span className="model-tag">{model || "默认"}</span>
+              <span className="model-tag">{model || "Default"}</span>
             </div>
 
             <label className="config-label">System Prompt</label>

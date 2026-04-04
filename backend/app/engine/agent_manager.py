@@ -1,15 +1,16 @@
 # engine/agent_manager.py
-"""Agent 生命周期管理"""
+"""Agent lifecycle management"""
 import asyncio
 from app.models.schemas import AgentConfig
 from app.providers.base import BaseProvider
 from app.engine.file_comm import FileComm
 from app.config import PROJECT_DIR, AGENT_TIMEOUT, AGENT_MAX_TURNS
+from app.api.plugins import resolve_plugin_paths
 from typing import Optional, Callable
 
 
 class AgentInstance:
-    """运行中的 Agent 实例"""
+    """Running Agent instance"""
 
     def __init__(
         self,
@@ -24,12 +25,14 @@ class AgentInstance:
         self.on_activity = on_activity
 
     async def execute(self, prompt: str) -> str:
-        """执行一个任务，返回结果文本"""
+        """Execute a task and return result text"""
         if self.on_activity:
-            await self.on_activity(self.config.id, "thinking", f"正在处理: {prompt[:50]}...")
+            await self.on_activity(self.config.id, "thinking", f"Processing: {prompt[:50]}...")
 
-        # 如果配了 project_dir，Agent 在用户项目目录工作；否则在 workspace 内
+        # If project_dir is configured, Agent works in user project dir; otherwise in workspace
         cwd = str(PROJECT_DIR) if PROJECT_DIR else str(self.file_comm.base_dir)
+        # Resolve plugin names to SDK format
+        sdk_plugins = resolve_plugin_paths(self.config.plugins) if self.config.plugins else []
         try:
             result = await asyncio.wait_for(
                 self.provider.send_message(
@@ -39,23 +42,24 @@ class AgentInstance:
                     cwd=cwd,
                     model=self.config.model,
                     max_turns=AGENT_MAX_TURNS,
+                    plugins=sdk_plugins or None,
                 ),
                 timeout=AGENT_TIMEOUT,
             )
         except asyncio.TimeoutError:
-            error_msg = f"Agent '{self.config.id}' 执行超时 ({AGENT_TIMEOUT}s)"
+            error_msg = f"Agent '{self.config.id}' execution timed out ({AGENT_TIMEOUT}s)"
             if self.on_activity:
-                await self.on_activity(self.config.id, "completed", f"超时: {error_msg}")
+                await self.on_activity(self.config.id, "completed", f"Timeout: {error_msg}")
             return f"[ERROR] {error_msg}"
 
         if self.on_activity:
-            await self.on_activity(self.config.id, "completed", "任务完成")
+            await self.on_activity(self.config.id, "completed", "Task completed")
 
         return result
 
 
 class AgentManager:
-    """管理所有 Agent 实例"""
+    """Manage all Agent instances"""
 
     def __init__(self, provider: BaseProvider, file_comm: FileComm):
         self.provider = provider
@@ -64,7 +68,7 @@ class AgentManager:
         self.on_activity: Optional[Callable] = None
 
     def create_agent(self, config: AgentConfig) -> AgentInstance:
-        """创建 Agent 实例"""
+        """Create Agent instance"""
         self.file_comm.init_agent(config.id)
         instance = AgentInstance(
             config=config,
@@ -78,15 +82,15 @@ class AgentManager:
     def get_agent(self, agent_id: str) -> Optional[AgentInstance]:
         return self.agents.get(agent_id)
 
-    # 兜底映射：旧 ID → role_type
+    # Fallback mapping: legacy ID → role_type
     _LEGACY_MAP = {"manager": "planner", "dev": "executor", "evaluator": "reviewer"}
 
     def get_agent_by_role_type(self, role_type: str) -> Optional[AgentInstance]:
-        """按 role_type 查找 Agent，兜底按旧 ID 映射"""
+        """Find Agent by role_type, fallback to legacy ID mapping"""
         for inst in self.agents.values():
-            if inst.config.role_type and inst.config.role_type.value == role_type:
+            if inst.config.role_type and inst.config.role_type == role_type:
                 return inst
-        # 兜底：按 ID 名映射
+        # Fallback: map by ID name
         for agent_id, mapped in self._LEGACY_MAP.items():
             if mapped == role_type and agent_id in self.agents:
                 return self.agents[agent_id]
@@ -94,3 +98,7 @@ class AgentManager:
 
     def list_agents(self) -> list[str]:
         return list(self.agents.keys())
+
+    def remove_agent(self, agent_id: str):
+        """Remove Agent instance"""
+        self.agents.pop(agent_id, None)

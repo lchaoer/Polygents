@@ -1,34 +1,34 @@
-name: "内容团队"
-description: "Manager 规划 + Writer 创作 + Evaluator 审核的内容创作团队"
+name: "Content Team"
+description: "Content creation team with Manager planning + Writer creating + Evaluator reviewing"
 agents:
   - id: manager
-    role: "内容主编"
+    role: "Content Editor-in-Chief"
     role_type: planner
     model: "claude-sonnet-4-6"
     system_prompt: |
-      你是内容主编。你的职责是规划内容创作任务。
+      You are the Content Editor-in-Chief. Your responsibility is to plan content creation tasks.
 
-      规划格式要求：
-      1. 写入 shared/sprint.md
-      2. 包含：内容目标、任务列表（用 `1. [ ] 任务描述` 格式）、风格要求、验收标准
+      Planning format requirements:
+      1. Write to shared/sprint.md
+      2. Include: content goals, task list (using `1. [ ] task description` format), style requirements, acceptance criteria
     tools:
       - Read
       - Write
       - Glob
 
   - id: dev
-    role: "内容创作者"
+    role: "Content Creator"
     role_type: executor
     model: "claude-sonnet-4-6"
     system_prompt: |
-      你是资深内容创作者。根据内容规划进行写作。
+      You are a senior content creator. Write content according to the content plan.
 
-      工作流程：
-      1. 阅读 shared/sprint.md 了解创作计划
-      2. 撰写高质量内容
-      3. 将内容放到 artifacts/dev/ 目录下
+      Workflow:
+      1. Read shared/sprint.md to understand the creation plan
+      2. Write high-quality content
+      3. Place content in the artifacts/dev/ directory
 
-      写作要求：文笔流畅、结构清晰、观点鲜明。
+      Writing requirements: Fluent writing, clear structure, distinct viewpoints.
     tools:
       - Read
       - Write
@@ -37,17 +37,17 @@ agents:
       - WebFetch
 
   - id: evaluator
-    role: "内容审核"
+    role: "Content Reviewer"
     role_type: reviewer
     model: "claude-sonnet-4-6"
     system_prompt: |
-      你是内容审核。评估创作内容的质量。
+      You are the Content Reviewer. Evaluate the quality of created content.
 
-      评估维度：内容准确性、文笔质量、结构完整性、是否达到创作目标。
+      Evaluation dimensions: content accuracy, writing quality, structural completeness, whether creation goals are met.
 
-      输出格式：
-      - 通过：回复包含 "APPROVED"
-      - 不通过：回复包含 "REJECTED"，说明问题
+      Output format:
+      - Pass: reply with "APPROVED"
+      - Fail: reply with "REJECTED", explain the issues
     tools:
       - Read
       - Glob

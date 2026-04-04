@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import useFlowStore from "../store/flowStore";
+import { API_BASE } from "../config";
 
 interface TreeNode {
   name: string;
@@ -42,13 +43,17 @@ export default function WorkspacePanel() {
   const [filePath, setFilePath] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string>("");
   const workspaceVersion = useFlowStore((s) => s.workspaceVersion);
+  const addToast = useFlowStore((s) => s.addToast);
 
   const fetchTree = useCallback(() => {
-    fetch("http://127.0.0.1:8001/api/workspace/tree")
-      .then((r) => r.json())
+    fetch(`${API_BASE}/api/workspace/tree`)
+      .then((r) => {
+        if (!r.ok) throw new Error();
+        return r.json();
+      })
       .then((data) => setTree(Array.isArray(data) ? data : []))
-      .catch(() => setTree([]));
-  }, []);
+      .catch(() => { setTree([]); addToast("error", "Failed to load workspace files"); });
+  }, [addToast]);
 
   useEffect(() => {
     fetchTree();
@@ -57,24 +62,25 @@ export default function WorkspacePanel() {
   const selectFile = useCallback(async (path: string) => {
     setFilePath(path);
     try {
-      const res = await fetch(`http://127.0.0.1:8001/api/workspace/file?path=${encodeURIComponent(path)}`);
+      const res = await fetch(`${API_BASE}/api/workspace/file?path=${encodeURIComponent(path)}`);
       const data = await res.json();
       setFileContent(data.content || "");
     } catch {
-      setFileContent("(加载失败)");
+      setFileContent("(Load failed)");
+      addToast("error", "Failed to read file");
     }
   }, []);
 
   return (
     <div className="workspace-panel">
       <div className="workspace-header">
-        <h3>工作区文件</h3>
-        <button className="workspace-refresh-btn" onClick={fetchTree} title="刷新">↻</button>
+        <h3>Workspace Files</h3>
+        <button className="workspace-refresh-btn" onClick={fetchTree} title="Refresh">↻</button>
       </div>
 
       <div className="workspace-tree">
         {tree.length === 0 ? (
-          <p className="thinking-empty">暂无文件</p>
+          <p className="thinking-empty">No files yet</p>
         ) : (
           tree.map((n) => <TreeItem key={n.path} node={n} onSelect={selectFile} />)
         )}

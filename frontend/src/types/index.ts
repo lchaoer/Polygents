@@ -3,7 +3,9 @@ export interface AgentConfig {
   role: string;
   system_prompt: string;
   tools: string[];
-  provider: string;
+  skills?: string[];
+  plugins?: string[];
+  provider?: string;
   model?: string;
   role_type?: "planner" | "executor" | "reviewer";
 }
@@ -15,41 +17,46 @@ export interface TeamTemplate {
   agents: AgentConfig[];
 }
 
-// ── WebSocket 消息类型 ─────────────────────────
+// ── WebSocket message types ─────────────────────────
 
-/** 通用 WS 消息（用于 activities 等不关心具体类型的场景） */
+/** Generic WS message (for activities and other scenarios where specific type doesn't matter) */
 export interface WSMessage {
   type: string;
   data: Record<string, unknown>;
 }
 
-/** 运行状态变更 */
+/** Run status change */
 export interface RunStatusEvent {
   type: "run_status";
   data: {
-    status: "running" | "completed" | "failed";
+    status: "running" | "completed" | "failed" | "cancelled" | "paused";
     detail: string;
+    run_id?: string;
+    timestamp?: string;
   };
 }
 
-/** Agent 活动通知 */
+/** Agent activity notification */
 export interface AgentActivityEvent {
   type: "agent_activity";
   data: {
     agent_id: string;
-    action: "thinking" | "writing" | "reading" | "completed";
+    action: "thinking" | "completed";
     detail: string;
+    run_id?: string;
+    timestamp?: string;
   };
 }
 
-/** 文件变更通知 */
+/** File change notification */
 export interface FileChangeEvent {
   type: "file_change";
+  data: Record<string, unknown>;
   change: "created" | "modified" | "deleted";
   path: string;
 }
 
-/** Goal 总验收结果（独立消息类型） */
+/** Goal final validation result (separate message type) */
 export interface GoalValidationEvent {
   type: "goal_validation";
   data: {
@@ -58,21 +65,36 @@ export interface GoalValidationEvent {
   };
 }
 
-/** 心跳 */
+/** Heartbeat */
 export interface PongEvent {
   type: "pong";
 }
 
-/** 所有 WS 消息的联合类型 */
+/** Task status change */
+export interface TaskUpdateEvent {
+  type: "task_update";
+  data: {
+    task_id: string;
+    description: string;
+    status: "pending" | "in_progress" | "review" | "completed" | "rejected";
+    assignee: string;
+    attempt: number;
+    run_id?: string;
+    timestamp?: string;
+  };
+}
+
+/** Union type of all WS messages */
 export type WSEvent =
   | RunStatusEvent
   | AgentActivityEvent
   | FileChangeEvent
   | GoalValidationEvent
+  | TaskUpdateEvent
   | PongEvent
   | WSMessage;
 
-// ── 类型守卫 ───────────────────────────────────
+// ── Type guards ───────────────────────────────────
 
 export function isRunStatus(msg: WSMessage): msg is RunStatusEvent {
   return msg.type === "run_status";
@@ -88,6 +110,19 @@ export function isGoalValidation(msg: WSMessage): msg is GoalValidationEvent {
 
 export function isFileChange(msg: WSMessage): msg is FileChangeEvent {
   return msg.type === "file_change";
+}
+
+export function isTaskUpdate(msg: WSMessage): msg is TaskUpdateEvent {
+  return msg.type === "task_update";
+}
+
+/** Task item for kanban board */
+export interface TaskItem {
+  task_id: string;
+  description: string;
+  status: "pending" | "in_progress" | "review" | "completed" | "rejected";
+  assignee: string;
+  attempt: number;
 }
 
 export interface RunRecord {

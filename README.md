@@ -1,71 +1,85 @@
 # Polygents
 
-多智能体协作框架 — 给 AI 一个组织架构。
+Multi-agent collaboration framework — give AI an organizational structure.
 
-Agent 通过文件系统 Markdown 文件通信，Manager 拆解任务、Dev 执行开发、Evaluator 评审质量，三角色自动闭环协作。
+Agents communicate via Markdown files on the filesystem. Manager breaks down tasks, Dev executes development, Evaluator reviews quality — three roles collaborating in an automated closed loop.
 
-## 快速启动
+## Quick Start
 
-### 环境要求
+### Prerequisites
 
 - **Python** >= 3.10
 - **Node.js** >= 18
 - **npm** >= 9
 
-### 1. 安装后端依赖
+### 1. Install Backend Dependencies
 
 ```bash
 cd Polygents/backend
 pip install -e ".[dev]"
 ```
 
-### 2. 安装前端依赖
+### 2. Install Frontend Dependencies
 
 ```bash
 cd Polygents/frontend
 npm install
 ```
 
-### 3. 启动后端
+### 3. Start the Backend
 
 ```bash
 cd Polygents/backend
 python -m app.main
 ```
 
-后端运行在 **http://127.0.0.1:8001**。
+The backend runs at **http://127.0.0.1:8001**.
 
-### 4. 启动前端
+### 4. Start the Frontend
 
 ```bash
 cd Polygents/frontend
 npm run dev
 ```
 
-前端运行在 **http://localhost:5173**。
+The frontend runs at **http://localhost:5173** by default (Vite will automatically switch to the next available port if it is occupied).
 
-### 5. 开始使用
+### 5. Getting Started
 
-1. 打开 http://localhost:5173
-2. 选择一个团队模板（开发团队 / 研究团队 / 内容团队）
-3. 在画布页面输入任务描述，点击"开始运行"
-4. 右侧 Activity Feed 实时显示 Agent 协作过程
+1. Open the frontend URL (shown in terminal output)
+2. Select a preset team template (Dev Team / Research Team / Content Team), or click "Create Custom Team"
+3. On the canvas page, enter the task description and acceptance goals, then click "Start Run"
+4. The Activity Feed on the right shows agent collaboration in real time, with a progress bar tracking task completion
+5. You can click "Stop Run" at any time to cancel a running task
+6. View run history, search past runs, and re-run with one click from the history panel on the home page
 
-## 运行测试
+## Key Features
+
+- **Preset Templates & Custom Teams**: 3 built-in templates + form-based creation + YAML import/export
+- **Visual Canvas**: React Flow nodes displaying agent topology and real-time status
+- **Real-time Run Monitoring**: Progress bar, activity feed with timestamps, agent filtering, run timer
+- **Cancel Run**: Stop a running task at any time
+- **Goal Acceptance Mechanism**: Evaluator automatically validates against goals; users can choose to retry or accept when validation fails
+- **Workspace Browser**: View agent-produced file contents in real time
+- **Run History**: Search, view details, and re-run past executions
+- **Dark Starship Theme**: Sci-fi styled UI with dark/light mode toggle
+
+## Running Tests
 
 ```bash
-# 后端测试
+# Backend tests
 cd Polygents/backend
 python -m pytest -v
 
-# 前端构建检查
+# Frontend build check
 cd Polygents/frontend
 npm run build
 ```
 
-## 文档
+## Documentation
 
-详细的架构设计、通信机制、开发路线图等请查阅 [docs/](docs/) 目录：
+For detailed architecture design, communication mechanisms, development roadmap, and more, see the [docs/](docs/) directory:
 
-- [设计文档](docs/design.md) — 完整设计规范
-- [架构概览](docs/architecture.md) — 系统架构与项目结构
+- [Design Document](docs/design.md) — Full design specification
+- [Architecture Overview](docs/architecture.md) — System architecture and project structure
+- [API Reference](docs/api-reference.md) — REST API and WebSocket protocol
