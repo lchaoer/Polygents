@@ -1,236 +1,500 @@
-# 架构概览
+# Architecture Overview
 
-## 系统架构
+## System Architecture
 
 ```mermaid
 graph TB
-    subgraph "Frontend (React + TypeScript)"
-        A[HomePage<br/>模板选择] --> B[CanvasPage<br/>React Flow 画布]
-        B --> C[AgentNode 节点]
-        B --> D[ActivityFeed 监控]
-        B --> E[AgentPanel 配置]
+    subgraph "Frontend — React + TypeScript"
+        WLP[WorkflowListPage<br/>Workflow CRUD]
+        WEP[WorkflowEditPage<br/>Workflow Editor]
+        TP[TeamsPage<br/>Template Management]
+        CP[CreatePage<br/>Meta-Agent Chat]
+        CVP[CanvasPage<br/>Execution Canvas]
+        ADP[AgentDetailPage<br/>Agent Inspector]
+        LP[LogsPage<br/>Communication Logs]
+        HP[HistoryPage<br/>Run History]
+        SP[SkillsPage<br/>Skill Management]
+        CVP --> Canvas[Canvas<br/>React Flow]
+        CVP --> AF[ActivityFeed<br/>Event Stream]
+        CVP --> AP[AgentPanel<br/>Agent Config]
+        CVP --> KB[KanbanView<br/>Task Board]
+        CVP --> IP[InterventionPanel<br/>Runtime Control]
+        CVP --> WP[WorkspacePanel<br/>File Browser]
     end
 
-    subgraph "Backend (FastAPI + Python)"
-        CF[config.json] --> CFG[config.py<br/>统一配置入口]
-        F[REST API] --> G[Orchestrator<br/>编排引擎]
-        G --> H[AgentManager<br/>Agent 生命周期]
-        H --> AI[AgentInstance<br/>单个 Agent 实例]
-        AI --> I[ClaudeProvider<br/>Agent SDK 适配]
-        I --> CLI[Claude Code CLI<br/>子进程]
-        G --> J[FileComm<br/>文件通信]
-        K[FileWatcher] --> L[WebSocket<br/>实时推送]
+    subgraph "Backend — FastAPI + Python"
+        CFG[config.json] --> Config[config.py<br/>Unified Config]
+        API[REST API<br/>10 route groups]
+        WS[WebSocket /ws<br/>Bidirectional]
+        MA[MetaAgent<br/>Chat Team Creation]
+
+        subgraph Engine
+            ORC[Orchestrator<br/>Multi-Agent Loop]
+            SR[SingleRunner<br/>Single-Agent]
+            FO[FreeOrchestrator<br/>Free Mode]
+            AM[AgentManager<br/>Agent Lifecycle]
+            AI[AgentInstance<br/>Per-Agent Unit]
+            FC[FileComm<br/>Inter-Agent Messaging]
+            FW[FileWatcher<br/>Change Detection]
+            RS[RunStore<br/>History Persistence]
+            WFS[WorkflowStore<br/>Workflow Persistence]
+        end
+
+        subgraph Provider
+            CP2[ClaudeProvider<br/>Agent SDK Adapter]
+            CLI[Claude Code CLI<br/>Subprocess]
+        end
+
+        AM --> AI
+        AI --> CP2
+        CP2 --> CLI
+        ORC --> AM
+        SR --> AM
+        API --> ORC & SR & FO
+        API --> AM & FC & RS & WFS & MA
     end
 
-    B <-->|WebSocket| L
-    A -->|GET /api/teams/templates| F
-    B -->|POST /api/runs/start| F
-    J -->|文件变化| K
-    CLI -->|Read/Write/Bash| FS[(文件系统<br/>workspace/)]
+    WLP & WEP -->|REST| API
+    TP & CP -->|REST / SSE| API
+    CVP <-->|WebSocket| WS
+    FC -->|File Changes| FW
+    FW -->|Broadcast| WS
+    CLI -->|Read/Write/Bash| FS[(Filesystem<br/>workspace/)]
 ```
 
-## 运行流程
+## Execution Flow
+
+### Multi-Agent Team Run
 
 ```mermaid
 sequenceDiagram
-    participant U as 用户
-    participant FE as 前端
-    participant BE as 后端
-    participant M as Manager Agent
-    participant D as Dev Agent
-    participant E as Evaluator Agent
+    participant U as User
+    participant FE as Frontend
+    participant BE as Backend API
+    participant O as Orchestrator
+    participant M as Planner Agent
+    participant D as Executor Agent
+    participant E as Reviewer Agent
 
-    U->>FE: 选择团队模板
-    FE->>BE: GET /api/teams/templates/{id}
-    BE-->>FE: 返回模板配置
-    FE->>FE: 画布渲染 Agent 节点
+    U->>FE: Click "Run" on workflow
+    FE->>BE: POST /api/workflows/{id}/run
+    BE->>O: orchestrator.run(prompt, goal)
+    O->>M: Plan tasks → shared/sprint.md
+    M-->>O: Sprint plan with tasks
 
-    U->>FE: 输入 prompt + 开始运行
-    FE->>BE: POST /api/runs/start
-    BE->>M: 拆解任务 → shared/sprint.md
-    M-->>BE: Sprint 规划
-
-    loop 每个任务 (最多 3 轮)
-        BE->>D: 执行任务
-        D-->>BE: 产出代码/文档
-        BE->>E: 评审产出
+    loop Each task (max 3 retries)
+        O->>D: Execute task
+        D-->>O: Output (code/docs)
+        O->>E: Review output
         alt APPROVED
-            E-->>BE: 通过
+            E-->>O: Pass
         else REJECTED
-            E-->>BE: 反馈 → inbox/dev/
-            Note over BE: 继续下一轮
+            E-->>O: Feedback → inbox/dev/
+            Note over O: Next retry round
         end
     end
 
-    BE-->>FE: WebSocket 实时推送状态
-    FE-->>U: 活动流 + 节点状态更新
+    O->>E: Final goal validation
+    alt Goal met
+        O-->>FE: run_status {completed}
+    else Goal not met
+        O-->>FE: goal_validation {goal_not_met}
+        FE->>U: Show accept/retry dialog
+        U->>FE: Decision
+        FE->>BE: goal_decision {accept/retry}
+    end
+
+    BE-->>FE: WebSocket real-time updates throughout
+    FE-->>U: Activity feed + node status + kanban
 ```
 
-## 项目结构
+### Single-Agent Workflow Run
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant FE as Frontend
+    participant BE as Backend API
+    participant SR as SingleRunner
+    participant A as Agent
+
+    U->>FE: Click "Run" on single-agent workflow
+    FE->>BE: POST /api/workflows/{id}/run
+    BE->>SR: single_runner.run(workflow)
+    SR->>A: Execute with prompt + tools
+    A-->>SR: Result
+    SR-->>FE: run_status {completed}
+```
+
+## Project Structure
 
 ```
 Polygents/
-├── .gitignore                      # Git 忽略规则
+├── .gitignore
 ├── backend/
-│   ├── pyproject.toml              # Python 依赖 & 项目配置
-│   ├── config.json.example         # 配置模板（复制为 config.json 使用）
+│   ├── pyproject.toml               # Python dependencies & project config
+│   ├── config.json.example          # Config template (copy to config.json)
 │   ├── app/
-│   │   ├── main.py                 # FastAPI 入口
-│   │   ├── config.py               # 统一配置（读 config.json + 默认值）
-│   │   ├── models/schemas.py       # Pydantic 数据模型
+│   │   ├── main.py                  # FastAPI entry point, dependency wiring
+│   │   ├── config.py                # Unified config (config.json + defaults + Windows setup)
+│   │   ├── models/
+│   │   │   └── schemas.py           # Pydantic models (AgentConfig, TaskItem, RunRecord, etc.)
 │   │   ├── engine/
-│   │   │   ├── file_comm.py        # 文件通信（inbox/shared/artifacts/logs）
-│   │   │   ├── agent_manager.py    # Agent 实例管理
-│   │   │   ├── orchestrator.py     # 三角色闭环编排 + Goal 总验收
-│   │   │   └── file_watcher.py     # 文件变化监控
+│   │   │   ├── orchestrator.py      # Multi-agent orchestration (sequential + parallel)
+│   │   │   ├── single_runner.py     # Single-agent workflow execution
+│   │   │   ├── free_orchestrator.py # Free-form orchestration mode
+│   │   │   ├── agent_manager.py     # Agent instance lifecycle management
+│   │   │   ├── meta_agent.py        # Conversational team creation via LLM
+│   │   │   ├── file_comm.py         # Inter-agent file communication (inbox/shared/artifacts/logs)
+│   │   │   ├── file_watcher.py      # Workspace file change monitoring
+│   │   │   ├── run_store.py         # Run history persistence (workspace/runs/*.json)
+│   │   │   └── workflow_store.py    # Workflow persistence (workspace/workflows/*.yaml)
 │   │   ├── providers/
-│   │   │   ├── base.py             # LLM Provider 抽象接口
-│   │   │   └── claude_provider.py  # Claude Agent SDK 适配
-│   │   ├── ws/                     # WebSocket 连接 & 广播
-│   │   ├── api/                    # REST API (teams + runs)
-│   │   └── templates/              # 预设团队模板 YAML
-│   ├── tests/                      # pytest 测试
-│   └── workspace/                  # 运行时通信目录
+│   │   │   ├── base.py              # Abstract LLM provider interface
+│   │   │   └── claude_provider.py   # Claude Agent SDK adapter (send_message + stream_message)
+│   │   ├── api/
+│   │   │   ├── router.py            # Central router aggregation
+│   │   │   ├── workflows.py         # Workflow CRUD + run
+│   │   │   ├── teams.py             # Team template CRUD + import/export
+│   │   │   ├── runs.py              # Run start/status/history/cancel
+│   │   │   ├── agents.py            # Agent CRUD at runtime
+│   │   │   ├── meta_agent.py        # Meta-agent SSE chat endpoint
+│   │   │   ├── workspace.py         # Workspace file browser
+│   │   │   ├── logs.py              # Communication log viewer
+│   │   │   ├── skills.py            # Skill file management
+│   │   │   └── plugins.py           # Installed plugin discovery
+│   │   ├── ws/
+│   │   │   ├── handler.py           # WebSocket endpoint + message routing
+│   │   │   └── manager.py           # Multi-connection broadcast manager
+│   │   └── templates/               # Preset team YAML templates
+│   ├── tests/                       # pytest test suite
+│   └── workspace/                   # Runtime workspace (gitignored)
+│       ├── inbox/                   # Per-agent message inboxes
+│       ├── shared/                  # Shared files (sprint.md, etc.)
+│       ├── artifacts/               # Per-agent output artifacts
+│       ├── logs/                    # Communication logs (YYYY-MM-DD.md)
+│       ├── runs/                    # Run history records (*.json)
+│       └── workflows/               # Saved workflow configs (*.yaml)
 ├── frontend/
+│   ├── package.json
+│   ├── .env                         # VITE_API_URL config
 │   └── src/
-│       ├── App.tsx                 # 路由 (/, /create, /canvas)
-│       ├── store/flowStore.ts      # Zustand 状态管理
-│       ├── hooks/useWebSocket.ts   # WebSocket 自动连接 & 重连
-│       ├── components/             # Canvas, AgentNode, AgentPanel, ActivityFeed
-│       ├── pages/                  # HomePage, CanvasPage, CreatePage (Phase 2)
-│       └── styles/index.css        # 暗色主题
+│       ├── App.tsx                   # Route definitions
+│       ├── config.ts                 # API_BASE + WS_URL from env
+│       ├── store/flowStore.ts        # Zustand state management
+│       ├── hooks/useWebSocket.ts     # WebSocket auto-connect + reconnect
+│       ├── components/
+│       │   ├── AppLayout.tsx         # Sidebar navigation layout
+│       │   ├── Canvas.tsx            # React Flow visual canvas
+│       │   ├── nodes/AgentNode.tsx   # Custom agent node (status indicators)
+│       │   ├── AgentPanel.tsx        # Selected agent detail + controls
+│       │   ├── AgentPalette.tsx      # Draggable agent palette
+│       │   ├── ActivityFeed.tsx      # Scrolling event log with thinking display
+│       │   ├── KanbanView.tsx        # Task board (pending → completed)
+│       │   ├── InterventionPanel.tsx # Pause/resume/intervene controls
+│       │   ├── WorkspacePanel.tsx    # Workspace file browser
+│       │   ├── HistoryPanel.tsx      # Run history viewer
+│       │   ├── MetaAgentChat.tsx     # SSE streaming chat for team creation
+│       │   ├── TeamPreview.tsx       # Team config preview
+│       │   ├── ThemeToggle.tsx       # Dark/light theme switch
+│       │   └── Toast.tsx             # Toast notification system
+│       ├── pages/
+│       │   ├── WorkflowListPage.tsx  # Workflow list with CRUD + run
+│       │   ├── WorkflowEditPage.tsx  # Workflow create/edit form
+│       │   ├── CanvasPage.tsx        # Execution workspace
+│       │   ├── TeamsPage.tsx         # Team template management
+│       │   ├── CreatePage.tsx        # Form + meta-agent team creation
+│       │   ├── AgentDetailPage.tsx   # Agent config/messages/artifacts
+│       │   ├── LogsPage.tsx          # Communication log browser
+│       │   ├── HistoryPage.tsx       # Run history list
+│       │   ├── SkillsPage.tsx        # Skill CRUD page
+│       │   └── HomePage.tsx          # (Legacy, unused)
+│       ├── types/index.ts            # TypeScript type definitions
+│       └── styles/index.css          # Global styles + dark theme
 └── docs/
-    ├── design.md                   # 设计文档
-    ├── architecture.md             # 本文档
-    ├── api-reference.md            # API & WebSocket 协议参考
-    └── plans/                      # 实施计划
+    ├── design.md                     # Design document
+    ├── architecture.md               # This document
+    ├── api-reference.md              # API & WebSocket reference
+    └── plans/                        # Implementation plans
 ```
 
-## 预设团队模板
+## Frontend Routes
 
-| 模板 | 文件 | 角色组成 |
-|------|------|---------|
-| 开发团队 | `dev-team.yaml` | 项目经理 → 高级开发工程师 → 质量评审员 |
-| 研究团队 | `research-team.yaml` | 研究主管 → 研究员 → 评审专家 |
-| 内容团队 | `content-team.yaml` | 内容主编 → 内容创作者 → 内容审核 |
+| Route | Page | Description |
+|-------|------|-------------|
+| `/` | WorkflowListPage | Workflow list with create/edit/delete/run |
+| `/workflows/new` | WorkflowEditPage | Create new workflow |
+| `/workflows/:id/edit` | WorkflowEditPage | Edit existing workflow |
+| `/teams` | TeamsPage | Team template management |
+| `/create` | CreatePage | Create team via form or meta-agent chat |
+| `/canvas` | CanvasPage | Execution workspace with visual canvas |
+| `/agent/:id` | AgentDetailPage | Agent inspector (config, messages, artifacts) |
+| `/logs` | LogsPage | Communication log browser |
+| `/history` | HistoryPage | Run history list |
+| `/skills` | SkillsPage | Skill file management |
 
-## Agent 生命周期
+## Preset Team Templates
 
-Agent 实例由 `AgentManager` 管理，遵循以下生命周期：
+| Template | File | Roles | Mode |
+|----------|------|-------|------|
+| Development Team | `dev-team.yaml` | PM → Senior Dev → QA Reviewer | Sequential |
+| Research Team | `research-team.yaml` | Research Lead → Researcher → Review Expert | Sequential |
+| Content Team | `content-team.yaml` | Editor → Creator → Reviewer | Sequential |
+| FastAPI Dev Team | `fastapi-用户系统开发团队.yaml` | Custom FastAPI roles | Sequential |
+| Market Research | `三线并行市场调研团队.yaml` | 3-line parallel research | Parallel |
+
+## API Endpoint Summary
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/workflows` | List workflows |
+| GET | `/api/workflows/{id}` | Get workflow |
+| POST | `/api/workflows` | Create workflow |
+| PUT | `/api/workflows/{id}` | Update workflow |
+| DELETE | `/api/workflows/{id}` | Delete workflow |
+| POST | `/api/workflows/{id}/run` | Run workflow |
+| GET | `/api/teams/templates` | List templates |
+| GET | `/api/teams/templates/{id}` | Get template |
+| POST | `/api/teams/templates` | Create template |
+| PUT | `/api/teams/templates/{id}` | Update template |
+| DELETE | `/api/teams/templates/{id}` | Delete template |
+| GET | `/api/teams/templates/{id}/export` | Export YAML |
+| POST | `/api/teams/templates/import` | Import YAML |
+| POST | `/api/runs/start` | Start run |
+| GET | `/api/runs/status` | Run status |
+| GET | `/api/runs/history` | Run history |
+| GET | `/api/runs/history/{id}` | Run details |
+| POST | `/api/runs/{id}/cancel` | Cancel run |
+| GET | `/api/agents` | List agents |
+| GET | `/api/agents/{id}` | Agent details |
+| POST | `/api/agents` | Create agent |
+| PUT | `/api/agents/{id}` | Update agent |
+| DELETE | `/api/agents/{id}` | Delete agent |
+| POST | `/api/meta-agent/chat` | Meta-agent SSE chat |
+| POST | `/api/meta-agent/finalize` | Finalize team (fallback) |
+| GET | `/api/workspace/tree` | Directory tree |
+| GET | `/api/workspace/file` | Read file |
+| GET | `/api/logs` | List logs |
+| GET | `/api/logs/{date}` | Logs by date |
+| GET | `/api/skills/available` | All skills (project + user) |
+| GET | `/api/skills` | Project skills |
+| GET | `/api/skills/{name}` | Read skill |
+| POST | `/api/skills` | Create skill |
+| PUT | `/api/skills/{name}` | Update skill |
+| DELETE | `/api/skills/{name}` | Delete skill |
+| GET | `/api/plugins/available` | List plugins |
+| WS | `/ws` | WebSocket real-time |
+
+## Agent Lifecycle
+
+Agents are managed by `AgentManager` and follow this lifecycle:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Created: POST /api/runs/start<br/>加载模板 YAML
+    [*] --> Created: Template loaded or API POST /api/agents
     Created --> Idle: AgentManager.create_agent()
-    Idle --> Thinking: Orchestrator 分配任务
-    Thinking --> Executing: Agent SDK 启动子进程
-    Executing --> Idle: 任务完成
-    Idle --> [*]: 运行结束（实例留在内存中）
+    Idle --> Thinking: Orchestrator assigns task
+    Thinking --> Executing: Agent SDK spawns CLI subprocess
+    Executing --> Idle: Task complete
+    Idle --> Removed: API DELETE /api/agents/{id}
+    Removed --> [*]
+    Idle --> [*]: Run ends (instance stays in memory)
 
-    note right of Created: 从 YAML 模板读取<br/>AgentConfig
-    note right of Executing: Claude Code CLI 子进程<br/>在 workspace/ 或 project_dir 中工作
+    note right of Created: From YAML template<br/>or runtime API call
+    note right of Executing: Claude Code CLI subprocess<br/>works in workspace/ or project_dir
 ```
 
-**关键行为:**
+**Key behaviors:**
 
-| 阶段 | 说明 |
-|------|------|
-| **创建** | `POST /api/runs/start` 时，按 template_id 加载 YAML，为每个角色创建 `AgentInstance` |
-| **复用** | 同一运行内的多轮任务（Dev→Evaluator 闭环）复用同一个 Agent 实例 |
-| **不自动销毁** | 运行结束后实例留在 `AgentManager.agents` 字典中，下次运行时若 ID 相同会被覆盖 |
-| **无状态** | Agent 实例本身无状态记忆，每次 `execute()` 都是独立的 Agent SDK 调用 |
-| **并发** | 当前 MVP 为顺序执行（一次只有一个 Agent 在工作），Phase 2 支持并行 |
+| Phase | Description |
+|-------|-------------|
+| **Creation** | From team templates (YAML) on run start, or via `POST /api/agents` at runtime |
+| **Reuse** | Same agent instance is reused across task retries within a run |
+| **Lookup** | By ID or by `role_type` (planner/executor/reviewer) with fallback mapping |
+| **No autodestroy** | Instances remain in `AgentManager.agents` after run ends; overwritten on next run with same ID |
+| **Stateless** | Each `execute()` call is an independent Agent SDK query — no memory between tasks |
+| **Runtime config** | System prompt, tools, and model can be modified via `PUT /api/agents/{id}` |
 
-## API 端点
+## Execution Modes
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/teams/templates` | 列出所有团队模板 |
-| GET | `/api/teams/templates/{id}` | 获取模板详情 |
-| POST | `/api/runs/start` | 启动一次运行 |
-| GET | `/api/runs/status` | 获取运行状态 |
-| WS | `/ws` | WebSocket 实时通信 |
-
-## 核心设计：Agent SDK — 让每个 Agent 像 Claude Code 一样工作
-
-Polygents 使用 **Claude Agent SDK**（而非 Anthropic SDK）作为 LLM 提供者，这是整个项目的关键设计决策。
-
-### 为什么选择 Agent SDK？
-
-普通的 Anthropic SDK 只能让 Agent **思考和回复**（纯文本对话）。而 Agent SDK 让每个 Agent 拥有 **Claude Code 的全部能力**：
+The orchestrator supports multiple execution strategies:
 
 ```mermaid
 graph LR
-    subgraph "❌ 普通 Anthropic SDK"
-        A1[用户 Prompt] --> A2[LLM 思考]
-        A2 --> A3[文本回复]
+    subgraph Sequential
+        A1[Task 1] --> A2[Task 2] --> A3[Task 3]
     end
 
-    subgraph "✅ Claude Agent SDK"
-        B1[用户 Prompt] --> B2[LLM 思考]
-        B2 --> B3[Read/Write/Edit<br/>读写文件]
-        B2 --> B4[Bash<br/>执行命令]
-        B2 --> B5[Glob/Grep<br/>搜索代码]
-        B2 --> B6[WebSearch/WebFetch<br/>搜索网页]
-        B3 & B4 & B5 & B6 --> B7[自主完成任务]
+    subgraph Parallel
+        B1[Task 1] --> B3[Task 3]
+        B2[Task 2] --> B3
+    end
+
+    subgraph Single
+        C1[Agent executes prompt directly]
     end
 ```
 
-### Agent SDK 提供的内置工具
+| Mode | Runner | Description |
+|------|--------|-------------|
+| `sequential` | Orchestrator | Tasks executed one-by-one with executor→reviewer loop |
+| `parallel` | Orchestrator | Dependency-aware parallel execution with deadlock detection |
+| `free` | FreeOrchestrator | Free-form orchestration |
+| `single` | SingleRunner | Single agent, no orchestration loop |
 
-| 工具 | 能力 | 场景示例 |
-|------|------|---------|
-| `Read` | 读取文件 | Agent 阅读现有代码理解架构 |
-| `Write` | 创建文件 | Agent 写出完整代码文件 |
-| `Edit` | 精确编辑 | Agent 修改已有文件特定行 |
-| `Bash` | 执行命令 | Agent 运行测试、安装依赖、git 操作 |
-| `Glob` | 文件搜索 | Agent 找到特定模式的文件 |
-| `Grep` | 内容搜索 | Agent 搜索函数定义、引用等 |
-| `WebSearch` | 搜索网页 | Agent 查找最新技术方案 |
-| `WebFetch` | 抓取网页 | Agent 获取 API 文档等 |
+## Core Design: Agent SDK — Every Agent Works Like Claude Code
 
-### 工作方式
+Polygents uses the **Claude Agent SDK** (not Anthropic SDK) as its LLM provider. This is the key architectural decision.
 
-Agent SDK 在底层**启动 Claude Code CLI 子进程**，让每个 Agent 在指定的工作目录内自主操作：
+### Why Agent SDK?
+
+The Anthropic SDK only enables text conversations. Agent SDK gives each agent **full Claude Code capabilities**:
+
+```mermaid
+graph LR
+    subgraph "Anthropic SDK"
+        A1[Prompt] --> A2[LLM Response]
+        A2 --> A3[Text Output]
+    end
+
+    subgraph "Claude Agent SDK"
+        B1[Prompt] --> B2[LLM + Tools]
+        B2 --> B3[Read/Write/Edit<br/>File Operations]
+        B2 --> B4[Bash<br/>Shell Commands]
+        B2 --> B5[Glob/Grep<br/>Code Search]
+        B2 --> B6[WebSearch/WebFetch<br/>Web Access]
+        B2 --> B7[Skill<br/>Reusable Skills]
+        B3 & B4 & B5 & B6 & B7 --> B8[Autonomous Task Completion]
+    end
+```
+
+### Built-in Tools
+
+| Tool | Capability | Example Use |
+|------|-----------|-------------|
+| `Read` | Read files | Agent reads existing code to understand architecture |
+| `Write` | Create files | Agent writes complete code files |
+| `Edit` | Precise edits | Agent modifies specific lines in existing files |
+| `Bash` | Shell commands | Agent runs tests, installs deps, git operations |
+| `Glob` | File search | Agent finds files matching patterns |
+| `Grep` | Content search | Agent searches for function definitions, references |
+| `WebSearch` | Web search | Agent finds latest technical solutions |
+| `WebFetch` | Fetch URLs | Agent retrieves API docs, references |
+| `Skill` | Reusable skills | Agent uses predefined skill workflows |
+
+### Provider Architecture
 
 ```mermaid
 sequenceDiagram
     participant O as Orchestrator
     participant P as ClaudeProvider
     participant SDK as Agent SDK
-    participant CLI as Claude Code<br/>子进程
-    participant FS as 文件系统
+    participant CLI as Claude Code<br/>Subprocess
+    participant FS as Filesystem
 
-    O->>P: send_message(prompt, tools, cwd)
+    O->>P: send_message(prompt, tools, cwd, on_activity)
     P->>SDK: query(prompt, options)
-    SDK->>CLI: 启动子进程 (cwd=workspace/)
+    SDK->>CLI: Spawn subprocess (cwd=workspace/)
 
-    loop Agent 自主工作循环
-        CLI->>CLI: 分析任务
-        CLI->>FS: Read 现有代码
-        CLI->>CLI: 规划方案
-        CLI->>FS: Write/Edit 代码
-        CLI->>FS: Bash 运行测试
-        CLI->>CLI: 检查结果，继续迭代
+    loop Agent autonomous work
+        CLI->>CLI: Analyze task
+        CLI->>FS: Read existing code
+        CLI->>CLI: Plan approach
+        CLI->>FS: Write/Edit code
+        CLI->>FS: Bash — run tests
+        CLI->>CLI: Check results, iterate
     end
 
     CLI-->>SDK: ResultMessage
-    SDK-->>P: 异步迭代结果
-    P-->>O: 完整输出
+    SDK-->>P: Async iteration
+    P-->>O: on_activity(thinking, content) + final result
 ```
 
-### Windows 兼容性注意事项
+### Activity Streaming
 
-Agent SDK（Claude Code CLI）在 Windows 上需要特殊配置：
+The provider reports agent thinking process in real-time:
 
-1. **ProactorEventLoop**: 必须在模块顶层设置 `asyncio.WindowsProactorEventLoopPolicy()`
-2. **Git Bash**: 需要设置 `CLAUDE_CODE_GIT_BASH_PATH` 环境变量
-3. **禁用热重载**: uvicorn 的 reload 模式会重置 event loop policy，必须在 Windows 上禁用
+```mermaid
+graph LR
+    CP[ClaudeProvider<br/>on_activity callback] -->|TextBlock / ThinkingBlock| AI[AgentInstance<br/>_activity_bridge]
+    AI -->|agent_id + action + detail| AM[AgentManager<br/>on_activity]
+    AM -->|broadcast| WS[WebSocket<br/>agent_activity event]
+    WS -->|stream| FE[Frontend<br/>ActivityFeed]
+```
 
-这些配置已在 `app/main.py` 的模块顶层处理。
+### Agent Configuration
 
-## 技术栈
+Each agent is configured with:
 
-**后端:** Python 3.10+ / FastAPI / Pydantic v2 / watchfiles / **Claude Agent SDK** / anyio
+```python
+AgentConfig(
+    id="dev",                          # Unique identifier
+    role="Senior Developer",           # Display name
+    role_type="executor",              # planner | executor | reviewer
+    system_prompt="You are a ...",     # Agent personality & instructions
+    tools=["Read", "Write", "Bash"],   # Allowed Claude Code tools
+    skills=["tdd"],                    # Skill files to load
+    plugins=["playwright"],            # Claude Code plugins
+    model="claude-sonnet-4-6",         # LLM model
+    provider="claude",                 # Provider type
+)
+```
 
-**前端:** React 19 / TypeScript / Vite 8 / React Flow (@xyflow/react) / Zustand / React Router
+## Configuration
+
+Server configuration via `backend/config.json`:
+
+```json
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8001
+  },
+  "agent": {
+    "workspace_dir": "./workspace",
+    "project_dir": null,
+    "max_retries": 3,
+    "timeout": 300,
+    "max_turns": null
+  },
+  "git_bash": {
+    "path": null
+  }
+}
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `server.host` | `127.0.0.1` | Server bind address |
+| `server.port` | `8001` | Server port |
+| `agent.workspace_dir` | `./workspace` | Inter-agent communication directory |
+| `agent.project_dir` | `null` | Agent SDK cwd (user project directory) |
+| `agent.max_retries` | `3` | Max retry rounds per task |
+| `agent.timeout` | `300` | Agent execution timeout (seconds) |
+| `agent.max_turns` | `null` | Max Agent SDK turns per execution |
+| `git_bash.path` | Auto-detect | Git Bash path (Windows only) |
+
+Frontend configuration via `frontend/.env`:
+
+```
+VITE_API_URL=http://127.0.0.1:8001
+```
+
+## Windows Compatibility
+
+Claude Agent SDK (Claude Code CLI) requires special setup on Windows:
+
+1. **ProactorEventLoop**: Must set `asyncio.WindowsProactorEventLoopPolicy()` at module level before any async operations
+2. **Git Bash**: `CLAUDE_CODE_GIT_BASH_PATH` environment variable must point to `bash.exe` — auto-detected from common paths if not configured
+3. **No hot-reload**: uvicorn's `--reload` resets event loop policy on Windows — disabled automatically
+4. **UTF-8 encoding**: `PYTHONIOENCODING=utf-8` set to handle emoji and non-ASCII in agent output
+
+These are handled in `config.py:setup_windows_env()`, called at module level in `main.py`.
+
+## Tech Stack
+
+**Backend:** Python 3.10+ / FastAPI / Pydantic v2 / watchfiles / Claude Agent SDK / anyio
+
+**Frontend:** React 19 / TypeScript / Vite 8 / React Flow (@xyflow/react) / Zustand / React Router v7
+
+**Testing:** pytest + pytest-asyncio (backend) / Playwright (frontend E2E)

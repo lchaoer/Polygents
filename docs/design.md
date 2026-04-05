@@ -1,8 +1,8 @@
 # Polygents - 多智能体协作框架设计文档
 
-> **版本**: v0.1 (草案)
-> **日期**: 2026-03-30
-> **状态**: 讨论中
+> **版本**: v0.2
+> **日期**: 2026-04-05
+> **状态**: Phase 1 & 2 已实现
 
 ---
 
@@ -63,23 +63,19 @@ graph TB
 
 Agent 是系统中的基本工作单元。
 
-**MVP 必需属性：**
+**属性：**
 
 | 属性 | 说明 | 示例 |
 |------|------|------|
+| **id** | 唯一标识 | "dev" |
 | **role** | 角色名称 | "高级后端工程师" |
+| **role_type** | 角色类型 | "planner" / "executor" / "reviewer" |
 | **system_prompt** | 系统提示词 | "你是高级开发工程师..." |
-| **tools** | 可用工具 | ["read_file", "write_file", "run_tests"] |
-| **provider** | 后端模型 | claude |
-
-**后续扩展属性（Phase 2+）：**
-
-| 属性 | 说明 | 示例 |
-|------|------|------|
-| **goal** | 工作目标 | "设计并实现高质量的 API 接口" |
-| **backstory** | 背景设定 | "10年经验的 Python 专家" |
-| **skills** | 技能列表 | ["python", "api-design"] |
-| **constraints** | 约束条件 | "所有代码必须有单元测试" |
+| **tools** | 可用的 Claude Code 工具 | ["Read", "Write", "Edit", "Bash", "Glob", "Grep"] |
+| **skills** | 加载的 Skill 文件 | ["tdd", "code-review"] |
+| **plugins** | 加载的 Claude Code 插件 | ["playwright"] |
+| **model** | 使用的模型 | "claude-sonnet-4-6" / "claude-opus-4-6" |
+| **provider** | 后端模型 | "claude" |
 
 ### 2.2 Team（团队）
 
@@ -110,16 +106,15 @@ Orchestrator 是**系统内部组件**（不是 Agent），负责：
 - 监控进度，处理超时和重试
 - 协调闭环（Evaluator 打回 → 重新分配）
 
-### 2.5 Meta-Agent（元代理）— Phase 2
+### 2.5 Meta-Agent（元代理）
 
-> **注意**: Meta-Agent 在 MVP 中未实现。当前 MVP 使用预设模板（YAML）直接创建团队。
-
-一个特殊的 Agent，**只在启动阶段工作**，负责"建团队"：
+通过 SSE 流式对话引导用户描述需求，自动生成团队模板：
 
 - 通过对话理解用户需求，规划团队角色组成
 - 也可从预设模板快速创建
-- 生成 Agent 配置（YAML），实例化团队
+- 自动创建 YAML 模板文件并实例化团队
 - 团队建好后退出，后续工作交给 Orchestrator
+- **API**: `POST /api/meta-agent/chat`（SSE 流式）、`POST /api/meta-agent/finalize`（手动回退）
 
 ---
 
@@ -341,33 +336,36 @@ sequenceDiagram
 ```yaml
 roles:
   manager:
+    role_type: planner
     system_prompt: |
       你是项目经理。根据用户需求，生成清晰的 Sprint 规划。
       规划应包含：项目目标、任务拆解（编号）、架构建议、验收标准。
       输出到 shared/sprint.md。
-    tools: ["read_file", "write_file"]
-    provider: claude
+    tools: ["Read", "Write", "Glob", "Grep"]
+    model: claude-sonnet-4-6
 
   dev:
+    role_type: executor
     system_prompt: |
       你是高级开发工程师。阅读 Sprint 规划，逐个完成分配的任务。
       写出高质量、可运行的代码。产出放到 artifacts/ 目录下。
       完成后通知 Evaluator 审查。
-    tools: ["read_file", "write_file", "run_command", "run_tests"]
-    provider: claude
+    tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
+    model: claude-sonnet-4-6
 
   evaluator:
+    role_type: reviewer
     system_prompt: |
       你是严格的质量评审员。对照 Sprint 中的验收标准，评估 Dev 的产出。
       评估维度：功能完整性、代码质量、是否满足需求。
       通过则标记完成，不通过则写明具体问题和修改建议，
       发回给 Dev（实现问题）或 Manager（规划问题）。
-    tools: ["read_file", "write_file", "run_tests"]
-    provider: claude
+    tools: ["Read", "Write", "Bash", "Glob", "Grep"]
+    model: claude-sonnet-4-6
 
 execution:
-  max_retries: 3          # 单任务最大重试轮数
-  mode: sequential        # sequential（MVP） | parallel（后续）
+  max_retries: 3
+  mode: sequential        # sequential | parallel | free
   notify_on_complete: true
 ```
 
@@ -398,12 +396,11 @@ Manager 生成的 `shared/sprint.md`：
 - 代码有合理的错误处理
 ```
 
-### 4.6 后续扩展：自定义角色（Phase 3）
+### 4.6 后续扩展：自定义角色
 
-MVP 的 Meta-Agent 支持对话式组建三角色团队和预设模板。Phase 3 将扩展为：
-- 支持自定义角色（不限于 Manager/Dev/Evaluator 三种）
-- 用户可在 Web UI 上拖拽添加新角色类型
+当前已支持通过 Meta-Agent 对话或 Web UI 手动创建自定义角色，不限于 Manager/Dev/Evaluator。后续扩展方向：
 - 角色模板市场（社区共享）
+- 更多 Provider 适配（OpenAI 等）
 
 ---
 
@@ -413,103 +410,134 @@ MVP 的 Meta-Agent 支持对话式组建三角色团队和预设模板。Phase 3
 
 | 层级 | 技术 | 说明 |
 |------|------|------|
-| 前端框架 | React + TypeScript | 组件化，类型安全 |
-| 画布引擎 | React Flow | 拖拽式节点编排 |
-| UI 组件库 | 待定（shadcn/ui 或 Ant Design） | 美观实用 |
+| 前端框架 | React 19 + TypeScript | 组件化，类型安全 |
+| 画布引擎 | React Flow (@xyflow/react) | 拖拽式节点编排 |
+| UI 样式 | 纯 CSS 自定义 | 暗色主题，无第三方组件库 |
 | 状态管理 | Zustand | 轻量灵活 |
+| 路由 | React Router v7 | 客户端路由 |
 | 通信协议 | WebSocket | 实时 Agent 活动推送 |
+| 构建工具 | Vite 8 | 快速开发和构建 |
 | 后端框架 | FastAPI (Python) | 与核心引擎同语言 |
+| E2E 测试 | Playwright | 浏览器自动化测试 |
 
 ### 5.2 页面结构
 
-> **MVP (Phase 1) 已实现**: `/home`（首页模板选择）、`/canvas`（画布 + 运行）
-> **Phase 2 待实现**: `/create`（对话式创建）、`/agent/:id`、`/run/:id`、`/logs`
-
 ```mermaid
 graph LR
-    subgraph "Phase 1 ✅"
-        P0["/home<br/>首页"]
-        P2["/canvas<br/>团队画布页"]
+    subgraph "工作流管理"
+        P0["/  — 工作流列表"]
+        P0N["/workflows/new — 新建工作流"]
+        P0E["/workflows/:id/edit — 编辑工作流"]
     end
 
-    subgraph "Phase 2 🔲"
-        P1["/create<br/>创建团队页"]
-        P3["/agent/:id<br/>Agent 详情页"]
-        P4["/run/:id<br/>运行监控页"]
-        P5["/logs<br/>通信日志页"]
+    subgraph "团队管理"
+        P1["/teams — 团队模板"]
+        P2["/create — 创建团队<br/>(表单/Meta-Agent 对话)"]
     end
 
-    P0 -->|"选模板"| P2
-    P0 -.->|"对话创建 (Phase 2)"| P1
-    P1 -.->|"团队就绪"| P2
-    P2 -.->|"点击节点"| P3
-    P2 -->|"输入 prompt，启动运行"| P2
-    P2 -.->|"查看详情"| P5
+    subgraph "执行与监控"
+        P3["/canvas — 执行画布"]
+        P4["/agent/:id — Agent 详情"]
+    end
+
+    subgraph "记录与技能"
+        P5["/history — 运行历史"]
+        P6["/logs — 通信日志"]
+        P7["/skills — 技能管理"]
+    end
+
+    P0 -->|"运行"| P3
+    P0 -->|"新建"| P0N
+    P0 -->|"编辑"| P0E
+    P1 -->|"选模板"| P3
+    P2 -->|"团队就绪"| P3
+    P3 -->|"点击节点"| P4
+    P3 -->|"查看日志"| P6
 ```
 
 ### 5.3 各页面功能
 
-#### 首页 (`/home`)
+#### 工作流列表页 (`/`)
 
-项目入口，提供两种创建团队的方式。
+项目入口，展示所有已保存的工作流。
 
-- **快速开始**: 预设模板卡片（开发团队 / 研究团队 / 内容团队），一键创建
-- **自定义创建**: 和 Meta-Agent 对话，描述需求，动态生成团队
-- **历史项目**: 最近的运行记录
+- **工作流卡片**: 显示名称、描述、类型(single/team)、上次运行状态
+- **一键操作**: 运行、编辑、删除
+- **新建工作流**: 跳转到创建页面
+- **空状态引导**: 无工作流时提示创建
 
-#### 创建团队页 (`/create`) — Phase 2
+#### 工作流编辑页 (`/workflows/new`, `/workflows/:id/edit`)
 
-> **当前状态**: 占位页面，未实现。MVP 通过首页模板卡片直接进入画布。
+创建或编辑工作流配置。
 
-根据入口不同展示不同 UI：
+- **基本信息**: 名称、描述
+- **类型选择**: 单 Agent (`single`) 或团队 (`team`)
+- **单 Agent 模式**: 配置 Agent 的 system_prompt、tools、model
+- **团队模式**: 选择关联的团队模板
+- **预设 Prompt**: 默认任务描述
+- **预设 Goal**: 默认验收目标
 
-- **模板模式**: 展示模板详情，预览角色配置，确认创建
-- **对话模式**: 左侧聊天面板（和 Meta-Agent 对话），右侧实时预览团队配置
-- 底部：确认按钮，跳转到画布
+#### 团队模板页 (`/teams`)
+
+管理团队模板。
+
+- **模板列表**: 所有预设和自定义模板
+- **模板操作**: 创建、编辑、删除
+- **导入导出**: YAML 格式导入/导出
+- **角色预览**: 展示模板中的角色组成
+
+#### 创建团队页 (`/create`)
+
+提供两种创建团队的方式：
+
+- **表单模式**: 手动填写团队名称、描述、Agent 配置
+- **对话模式**: 和 Meta-Agent SSE 流式对话，描述需求后自动生成团队
+- 右侧实时预览团队配置
 
 #### 团队画布页 (`/canvas`)
 
-拖拽式可视化编排界面 + 运行入口。
+拖拽式可视化编排界面 + 运行监控。
 
-- **Agent 卡片**: 显示角色、状态、当前任务
-- **连线**: Agent 间的通信关系和数据流（Manager→Orchestrator→Dev→Evaluator）
-- **工具栏**: 添加 Agent、保存配置
-- **属性面板**: 点击卡片后展开，编辑 Agent 配置
+- **Agent 卡片**: 显示角色、状态指示灯（thinking/completed）、当前任务
+- **连线**: Agent 间的通信关系和数据流
+- **侧边面板切换**: 活动流 / Agent 配置 / 工作空间文件 / 任务看板
+- **运行控制**: 暂停/继续/干预面板
 - **Prompt 输入框**: 输入任务描述，启动运行
+- **进度指示**: 总任务数、已完成数、当前任务
 
-#### Agent 详情页 (`/agent/:id`) — Phase 2
+#### Agent 详情页 (`/agent/:id`)
 
-> **当前状态**: 未实现。MVP 通过画布上的 AgentPanel 侧边栏查看 Agent 信息。
+单个 Agent 的完整信息。
 
-单个 Agent 的全部配置和状态。
+- 基本信息（角色、role_type、模型）
+- System Prompt 查看
+- 工具配置列表
+- 历史通信记录（inbox 消息）
+- 产出的 artifact 文件列表
 
-- 基本信息（角色、目标、背景）
-- System Prompt 编辑器
-- 工具和权限配置
-- 历史通信记录
-- 当前任务和产出
+#### 运行历史页 (`/history`)
 
-#### 运行监控页 (`/run/:id`) — Phase 2
+所有运行记录列表。
 
-> **当前状态**: 未实现。MVP 的运行监控集成在画布页的 ActivityFeed 侧边栏中。
+- 运行 ID、关联模板、状态（running/completed/failed）
+- 时间范围（开始/结束）
+- 任务摘要
 
-实时观察团队工作过程。
+#### 通信日志页 (`/logs`)
 
-- **活动流**: 所有 Agent 的实时动作流（谁在做什么）
-- **文件变动**: 实时展示通信文件的创建和更新
-- **任务看板**: Kanban 式的任务进度追踪
-- **干预面板**: 人类可以暂停、指导、修改任何 Agent
+文件通信的时间线视图。
 
-#### 通信日志页 (`/logs`) — Phase 2
+- 按日期浏览日志
+- 按发送者/接收者/消息类型筛选
+- 日志条目：时间戳、发送方 → 接收方、类型标签、内容预览
 
-> **当前状态**: 未实现。
+#### 技能管理页 (`/skills`)
 
-所有文件通信的时间线视图。
+管理 Agent 可用的 Skill 文件。
 
-- 时间线展示（谁给谁发了什么）
-- Markdown 渲染预览
-- 筛选和搜索
-- 导出功能
+- 列出项目级和用户级 Skill
+- 创建/编辑/删除 Skill（Markdown + YAML frontmatter 格式）
+- Skill 加载到 Agent 后，Agent 在执行时自动获得对应能力
 
 ---
 
@@ -586,18 +614,19 @@ graph TB
 
 ```mermaid
 graph LR
-    AM[Agent Manager] --> PI[Provider Interface<br/>统一抽象接口]
+    AM[Agent Manager] --> PI[BaseProvider<br/>抽象接口]
     PI --> CP[ClaudeProvider<br/>Claude Agent SDK]
-    PI --> OP[OpenAIProvider<br/>OpenAI Agents SDK<br/>未来]
+    PI --> OP[OpenAIProvider<br/>OpenAI<br/>未来]
     PI --> XP[CustomProvider<br/>自定义<br/>未来]
 ```
 
-Provider Interface 需要实现的核心方法：
-- `send_message(prompt, context) → response` — 发送消息并获取回复
-- `stream_message(prompt, context) → AsyncIterator` — 流式响应
-- `execute_tool(tool_name, args) → result` — 执行工具调用
+BaseProvider 需要实现的核心方法：
+- `send_message(system_prompt, prompt, tools, cwd, model, max_turns, plugins, on_activity) → str` — 发送消息并获取完整回复
+- `stream_message(system_prompt, prompt, tools, cwd, model, max_turns, plugins) → AsyncIterator[str]` — 流式响应
 
-先实现 `ClaudeProvider`（基于 Claude Agent SDK），接口设计时预留扩展性。
+工具执行由 Agent SDK 内部处理（Claude Code CLI 子进程自主调用工具），Provider 层无需实现 `execute_tool`。
+
+`on_activity` 回调用于实时汇报 Agent 思考过程（TextBlock / ThinkingBlock），通过 WebSocket 推送到前端 ActivityFeed。
 
 ---
 
@@ -643,7 +672,7 @@ graph LR
 
 ## 8. 开发路线图
 
-### Phase 1: MVP — UX 驱动，跑通全链路
+### Phase 1: MVP — UX 驱动，跑通全链路 ✅
 
 > 目标：用户打开 Web UI → 对话/选模板创建团队 → 画布编辑 → 输入 prompt → 看到 Manager/Dev/Evaluator 闭环协作 → 查看产出
 
@@ -657,22 +686,22 @@ graph LR
 ```
 
 **前端（TypeScript/React）：**
-- [ ] 项目脚手架（Vite + React + TypeScript）
-- [ ] 首页：预设模板卡片 + 对话式创建入口
-- [ ] 创建团队页：模板模式 / 对话模式（Meta-Agent）
-- [ ] 团队画布页：React Flow 展示 Agent 卡片和通信连线
-- [ ] Agent 配置面板：点击卡片可编辑角色、prompt、工具
-- [ ] Prompt 输入框：在画布页输入任务描述，启动运行
-- [ ] 运行监控面板：实时展示 Agent 活动流和文件通信
+- [x] 项目脚手架（Vite + React + TypeScript）
+- [x] 首页：预设模板卡片 + 对话式创建入口
+- [x] 创建团队页：模板模式 / 对话模式（Meta-Agent）
+- [x] 团队画布页：React Flow 展示 Agent 卡片和通信连线
+- [x] Agent 配置面板：点击卡片可编辑角色、prompt、工具
+- [x] Prompt 输入框：在画布页输入任务描述，启动运行
+- [x] 运行监控面板：实时展示 Agent 活动流和文件通信
 
 **后端（Python/FastAPI）：**
-- [ ] FastAPI 服务 + WebSocket 端点
-- [ ] Meta-Agent：对话式创建团队 + 预设模板快速创建
-- [ ] Agent 定义与生命周期管理
-- [ ] ClaudeProvider 适配层（Claude Agent SDK）
-- [ ] 文件通信机制（inbox / shared / artifacts + 写锁）
-- [ ] File Monitor：监控 workspace 文件变化，通过 WebSocket 推送到前端
-- [ ] Orchestrator：接收 Manager 任务列表，分配执行，管理闭环重试
+- [x] FastAPI 服务 + WebSocket 端点
+- [x] Meta-Agent：对话式创建团队 + 预设模板快速创建
+- [x] Agent 定义与生命周期管理
+- [x] ClaudeProvider 适配层（Claude Agent SDK）
+- [x] 文件通信机制（inbox / shared / artifacts + 日志）
+- [x] File Monitor：监控 workspace 文件变化，通过 WebSocket 推送到前端
+- [x] Orchestrator：接收 Manager 任务列表，分配执行，管理闭环重试
 
 **MVP 内置角色：**
 
@@ -691,29 +720,27 @@ graph LR
 | `research-team` | Manager + Researcher + Evaluator | 调研分析 |
 | `content-team` | Manager + Writer + Evaluator | 内容创作 |
 
-### Phase 2: 交互增强
+### Phase 2: 交互增强 ✅
 
-- [ ] Agent 详情页（完整配置 + 历史通信）
-- [ ] 通信日志页（时间线 + Markdown 渲染）
-- [ ] 在画布上拖拽添加/删除 Agent，自定义团队
-- [ ] 并行执行模式
-- [ ] Human-in-the-loop：暂停、干预、修改 Agent 行为
-- [ ] 任务看板视图（Kanban 风格）
+- [x] Agent 详情页（完整配置 + 历史通信 + 产出文件）
+- [x] 通信日志页（按日期浏览 + 按发送者/类型筛选）
+- [x] 在画布上拖拽添加/删除 Agent，自定义团队
+- [x] 并行执行模式（依赖解析 + 死锁检测）
+- [x] Human-in-the-loop：暂停、干预、修改 Agent 行为
+- [x] 任务看板视图（Kanban 风格）
+- [x] 工作流管理（Workflow CRUD + 一键运行）
+- [x] 运行历史记录
+- [x] Skill 文件管理
+- [x] Plugin 发现与加载
+- [x] Agent 思考过程实时流式展示
 
-### Phase 3: 自定义角色扩展
-
-- [ ] Meta-Agent 支持对话式生成自定义角色（不限三角色）
-- [ ] 支持在画布上拖拽添加自定义角色类型
-- [ ] 自由协作模式（Agent 自主决定通信对象）
-- [ ] 角色配置导入导出
-
-### Phase 4: 生态扩展
+### Phase 3: 生态扩展
 
 - [ ] OpenAI Provider 适配
 - [ ] 自定义 Provider 接口（让用户接入任意 LLM）
-- [ ] 更多工具支持（MCP 集成）
-- [ ] 持久化与历史管理（项目级别的会话记录）
+- [ ] 更多工具支持（MCP 集成扩展）
 - [ ] 团队模板市场（社区共享模板）
+- [ ] 角色模板市场（社区共享角色）
 
 ---
 
