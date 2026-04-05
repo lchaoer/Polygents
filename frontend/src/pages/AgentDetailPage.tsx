@@ -77,7 +77,10 @@ export default function AgentDetailPage() {
       <ThemeToggle />
 
       <div className="agent-detail-header">
-        <button className="create-dialog-back" onClick={() => navigate(-1)}>← Back</button>
+        <button className="create-dialog-back" onClick={() => {
+          if (window.history.length > 1) navigate(-1);
+          else navigate("/");
+        }}>← Back</button>
         <h1>{agent.role}</h1>
         {agent.role_type && (
           <span className="team-preview-role-type" style={{

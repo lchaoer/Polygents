@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { ReactFlowProvider } from "@xyflow/react";
 import Canvas from "../components/Canvas";
 import AgentPanel from "../components/AgentPanel";
@@ -13,10 +14,12 @@ import { API_BASE } from "../config";
 import type { AgentConfig } from "../types";
 
 export default function CanvasPage() {
+  const navigate = useNavigate();
   const [prompt, setPrompt] = useState("");
   const [goal, setGoal] = useState("");
   const [showGoal, setShowGoal] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [workflowName, setWorkflowName] = useState("");
   const { send } = useWebSocket();
   const selectedNodeId = useFlowStore((s) => s.selectedNodeId);
   const sideView = useFlowStore((s) => s.sideView);
@@ -32,6 +35,20 @@ export default function CanvasPage() {
   const runStartTime = useFlowStore((s) => s.runStartTime);
   const isPaused = useFlowStore((s) => s.isPaused);
   const loadTeam = useFlowStore((s) => s.loadTeam);
+
+  // Derive breadcrumb from URL params
+  const breadcrumb = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    const workflowId = params.get("workflow");
+    const templateId = params.get("template");
+    if (workflowId) {
+      return { label: "Workflow List", path: "/", sub: workflowName || decodeURIComponent(workflowId) };
+    }
+    if (templateId) {
+      return { label: "Team Templates", path: "/teams", sub: templateId };
+    }
+    return { label: "Home", path: "/", sub: "Canvas" };
+  }, [workflowName]);
 
   // Auto-load Agent nodes from URL params on page load
   useEffect(() => {
@@ -76,6 +93,7 @@ export default function CanvasPage() {
             };
             loadTeam([agent]);
           }
+          if (data.name) setWorkflowName(data.name);
           // Auto-fill default prompt and goal
           if (data.default_prompt && !prompt) {
             setPrompt(data.default_prompt);
@@ -251,7 +269,20 @@ export default function CanvasPage() {
       <div className="app-layout">
         <div className="canvas-container">
 
-          <div className="side-view-switcher">
+          {/* Top bar: breadcrumb + view switcher */}
+          <div className="canvas-top-bar">
+            <div className="canvas-breadcrumb">
+              <button className="breadcrumb-back" onClick={() => navigate(breadcrumb.path)}>
+                ←
+              </button>
+              <span className="breadcrumb-link" onClick={() => navigate(breadcrumb.path)}>
+                {breadcrumb.label}
+              </span>
+              <span className="breadcrumb-sep">/</span>
+              <span className="breadcrumb-current">{breadcrumb.sub}</span>
+            </div>
+
+            <div className="side-view-switcher">
             <button
               className={`side-view-btn ${effectiveView === "activity" ? "active" : ""}`}
               onClick={() => { useFlowStore.getState().setSelectedNode(null); setSideView("activity"); }}
@@ -270,6 +301,7 @@ export default function CanvasPage() {
             >
               Board
             </button>
+            </div>
           </div>
 
           <AgentPalette />

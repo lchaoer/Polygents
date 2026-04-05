@@ -29,6 +29,11 @@ class AgentInstance:
         if self.on_activity:
             await self.on_activity(self.config.id, "thinking", f"Processing: {prompt[:50]}...")
 
+        # Bridge: forward provider-level activity to AgentManager-level on_activity
+        async def _activity_bridge(action: str, detail: str):
+            if self.on_activity:
+                await self.on_activity(self.config.id, action, detail)
+
         # If project_dir is configured, Agent works in user project dir; otherwise in workspace
         cwd = str(PROJECT_DIR) if PROJECT_DIR else str(self.file_comm.base_dir)
         # Resolve plugin names to SDK format
@@ -43,6 +48,7 @@ class AgentInstance:
                     model=self.config.model,
                     max_turns=AGENT_MAX_TURNS,
                     plugins=sdk_plugins or None,
+                    on_activity=_activity_bridge,
                 ),
                 timeout=AGENT_TIMEOUT,
             )

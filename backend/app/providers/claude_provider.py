@@ -1,6 +1,7 @@
 # providers/claude_provider.py
 """Claude Agent SDK Provider — gives each Agent Claude Code-level capabilities: file I/O, shell commands, code search"""
-from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage, AssistantMessage
+import os
+from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage, AssistantMessage, TextBlock, ThinkingBlock
 from app.providers.base import BaseProvider
 from typing import AsyncIterator, Callable, Optional
 
@@ -16,9 +17,6 @@ class ClaudeProvider(BaseProvider):
     - WebSearch/WebFetch: search and fetch web content
     """
 
-    def __init__(self, on_activity: Optional[Callable] = None):
-        self.on_activity = on_activity
-
     async def send_message(
         self,
         system_prompt: str,
@@ -28,6 +26,7 @@ class ClaudeProvider(BaseProvider):
         model: str | None = None,
         max_turns: int | None = None,
         plugins: list[dict] | None = None,
+        on_activity: Optional[Callable] = None,
     ) -> str:
         """Send message and collect complete response"""
         effective_tools = tools or ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
@@ -41,19 +40,24 @@ class ClaudeProvider(BaseProvider):
             max_turns=max_turns,
             cwd=cwd,
             setting_sources=["user", "project"],
-            env={"PYTHONIOENCODING": "utf-8"},
+            env={
+                "PYTHONIOENCODING": "utf-8",
+                "CLAUDE_CODE_GIT_BASH_PATH": os.environ.get(
+                    "CLAUDE_CODE_GIT_BASH_PATH", r"D:\Software\Git\usr\bin\bash.exe"
+                ),
+            },
             plugins=plugins or [],
         )
 
         result_text = ""
         try:
             async for message in query(prompt=prompt, options=options):
-                if self.on_activity and isinstance(message, AssistantMessage):
-                    # Notify external listeners (for WebSocket real-time push)
+                if on_activity and isinstance(message, AssistantMessage):
                     for block in message.content:
-                        if hasattr(block, "text") and block.text:
-                            preview = block.text[:100]
-                            await self.on_activity("thinking", preview)
+                        if isinstance(block, TextBlock) and block.text:
+                            await on_activity("thinking", block.text)
+                        elif isinstance(block, ThinkingBlock) and block.thinking:
+                            await on_activity("thinking", block.thinking)
 
                 if isinstance(message, ResultMessage):
                     result_text = message.result or ""
@@ -86,7 +90,12 @@ class ClaudeProvider(BaseProvider):
             max_turns=max_turns,
             cwd=cwd,
             setting_sources=["user", "project"],
-            env={"PYTHONIOENCODING": "utf-8"},
+            env={
+                "PYTHONIOENCODING": "utf-8",
+                "CLAUDE_CODE_GIT_BASH_PATH": os.environ.get(
+                    "CLAUDE_CODE_GIT_BASH_PATH", r"D:\Software\Git\usr\bin\bash.exe"
+                ),
+            },
             plugins=plugins or [],
         )
 

@@ -1,7 +1,7 @@
 # providers/base.py
 """Provider abstract interface"""
 from abc import ABC, abstractmethod
-from typing import AsyncIterator
+from typing import AsyncIterator, Callable, Optional
 
 
 class BaseProvider(ABC):
@@ -17,6 +17,7 @@ class BaseProvider(ABC):
         model: str | None = None,
         max_turns: int | None = None,
         plugins: list[dict] | None = None,
+        on_activity: Optional[Callable] = None,
     ) -> str:
         """Send message and get complete response"""
         ...

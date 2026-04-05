@@ -41,7 +41,7 @@ export interface AgentActivityEvent {
   type: "agent_activity";
   data: {
     agent_id: string;
-    action: "thinking" | "completed";
+    action: "thinking" | "writing" | "reading" | "completed";
     detail: string;
     run_id?: string;
     timestamp?: string;

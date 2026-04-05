@@ -269,6 +269,63 @@ body {
     var(--bg-primary);
 }
 
+/* ── Canvas Top Bar (breadcrumb + view switcher) ── */
+
+.canvas-top-bar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.canvas-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.breadcrumb-back {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.breadcrumb-back:hover {
+  color: var(--text-primary);
+}
+
+.breadcrumb-link {
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.breadcrumb-link:hover {
+  text-decoration: underline;
+}
+
+.breadcrumb-sep {
+  color: var(--text-tertiary);
+}
+
+.breadcrumb-current {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 /* ── Sidebar (General) ─────────────────── */
 
 .side-panel {
@@ -637,6 +694,47 @@ body {
 .status-detail {
   color: var(--text-secondary);
   font-style: italic;
+}
+
+/* Thinking content in activity feed */
+.activity-item.thinking-item {
+  border-left: 2px solid var(--accent-dim, rgba(99, 102, 241, 0.3));
+  padding-left: 8px;
+}
+
+.activity-thinking {
+  font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
+.activity-thinking.expandable {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: pointer;
+  position: relative;
+}
+
+.activity-thinking.expandable::after {
+  content: "... (click to expand)";
+  color: var(--accent);
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.activity-thinking.expanded {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+  cursor: pointer;
+}
+
+.activity-thinking.expanded::after {
+  content: none;
 }
 
 /* ── Prompt Bar ──────────────────────────── */
@@ -1649,10 +1747,6 @@ body {
 /* ── Sidebar View Switcher ──────────────── */
 
 .side-view-switcher {
-  position: absolute;
-  top: 18px;
-  left: 18px;
-  z-index: 10;
   display: flex;
   gap: 4px;
   background: var(--bg-secondary);
@@ -3087,8 +3181,9 @@ body {
 
 .sidebar-nav-item.active {
   color: var(--accent);
-  background: var(--accent-dim);
-  border-left-color: var(--accent);
+  background: rgba(99, 102, 241, 0.15);
+  border-left: 3px solid var(--accent);
+  font-weight: 600;
 }
 
 .sidebar-icon {
@@ -3267,6 +3362,26 @@ body {
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
+}
+
+.wf-edit-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border-light);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.wf-edit-btn:hover {
+  border-color: #6366f1;
+  color: #6366f1;
 }
 
 .wf-delete-btn:hover {

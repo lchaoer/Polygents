@@ -117,7 +117,7 @@ export default function WorkflowListPage() {
             <div
               key={wf.id}
               className="workflow-card"
-              onClick={() => navigate(`/workflows/${wf.id}/edit`)}
+              onClick={() => navigate(`/canvas?workflow=${wf.id}`)}
             >
               <div className="workflow-card-top">
                 <div className="workflow-card-title">
@@ -131,6 +131,13 @@ export default function WorkflowListPage() {
                     title="Run"
                   >
                     ▶
+                  </button>
+                  <button
+                    className="wf-edit-btn"
+                    onClick={(e) => { e.stopPropagation(); navigate(`/workflows/${wf.id}/edit`); }}
+                    title="Edit"
+                  >
+                    ✎
                   </button>
                   <button
                     className="wf-delete-btn"

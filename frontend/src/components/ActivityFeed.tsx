@@ -24,6 +24,21 @@ const formatTs = (ts?: string) => {
   } catch { return ""; }
 };
 
+function ThinkingDetail({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = text.length > 200;
+
+  return (
+    <span
+      className={`activity-detail activity-thinking ${isLong && !expanded ? "expandable" : ""} ${expanded ? "expanded" : ""}`}
+      onClick={isLong ? () => setExpanded(!expanded) : undefined}
+      title={isLong && !expanded ? "Click to expand" : undefined}
+    >
+      {text}
+    </span>
+  );
+}
+
 export default function ActivityFeed() {
   const activities = useFlowStore((s) => s.activities);
   const runStatus = useFlowStore((s) => s.runStatus);
@@ -79,10 +94,11 @@ export default function ActivityFeed() {
         ) : (
           [...filtered].reverse().map((a, i) => {
             const ts = (a.data as Record<string, string>).timestamp;
+            const isThinking = a.type === "agent_activity" && (a.data as Record<string, string>).action === "thinking";
             return (
               <div
                 key={`${a.type}-${i}`}
-                className={`activity-item ${a.type === "run_status" ? "status-item" : ""}`}
+                className={`activity-item ${a.type === "run_status" ? "status-item" : ""} ${isThinking ? "thinking-item" : ""}`}
               >
                 {ts && <span className="activity-timestamp">{formatTs(ts)}</span>}
                 {a.type === "agent_activity" && (
@@ -90,9 +106,13 @@ export default function ActivityFeed() {
                     <span className="agent-badge">
                       {(a.data as Record<string, string>).agent_id}
                     </span>
-                    <span className="activity-detail">
-                      {(a.data as Record<string, string>).detail}
-                    </span>
+                    {isThinking ? (
+                      <ThinkingDetail text={(a.data as Record<string, string>).detail} />
+                    ) : (
+                      <span className="activity-detail">
+                        {(a.data as Record<string, string>).detail}
+                      </span>
+                    )}
                   </>
                 )}
                 {a.type === "run_status" && (
