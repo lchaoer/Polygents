@@ -113,3 +113,42 @@ async def cancel_run(run_id: str):
     if _run_store:
         _run_store.complete_run(run_id, "cancelled", "Manually cancelled by user")
     return {"status": "cancelled", "run_id": run_id}
+
+
+class RetryTaskRequest(BaseModel):
+    task_id: str
+    description: str
+    assignee: str
+
+
+@router.post("/{run_id}/retry-task")
+async def retry_task(run_id: str, req: RetryTaskRequest):
+    """Retry a single failed task"""
+    if not _run_store:
+        raise HTTPException(status_code=500, detail="RunStore not configured")
+    record = _run_store.get_run(run_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    # Find matching task in summary
+    matched = None
+    for ts in record.tasks_summary:
+        if ts.get("id") == req.task_id or ts.get("description") == req.description:
+            matched = ts
+            break
+    if not matched:
+        raise HTTPException(status_code=404, detail="Task not found in run summary")
+    if matched.get("status") != "rejected":
+        raise HTTPException(status_code=400, detail="Only rejected tasks can be retried")
+
+    if not _orchestrator:
+        raise HTTPException(status_code=500, detail="Engine not initialized")
+
+    # Run retry in background
+    task = asyncio.create_task(
+        _orchestrator.retry_single_task(req.description, req.assignee, run_id)
+    )
+    _active_runs[f"{run_id}-retry"] = task
+    task.add_done_callback(lambda t: _active_runs.pop(f"{run_id}-retry", None))
+
+    return {"status": "retrying", "run_id": run_id, "task_id": req.task_id}

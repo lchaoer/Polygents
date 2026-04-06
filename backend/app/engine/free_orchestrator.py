@@ -36,9 +36,10 @@ class FreeOrchestrator:
         self.run_store = run_store
         self._current_run_id: Optional[str] = None
 
-    async def run(self, user_prompt: str, goal: str | None = None, run_id: str | None = None):
+    async def run(self, user_prompt: str, goal: str | None = None, run_id: str | None = None, enable_memory: bool = False):
         """Free collaboration run: all Agents take turns, communicating via shared/ and inbox"""
         self._current_run_id = run_id
+        self._enable_memory = enable_memory
         try:
             await self._run_inner(user_prompt, goal)
         except asyncio.CancelledError:
@@ -90,6 +91,17 @@ class FreeOrchestrator:
                     f"{inbox_summary}\n\n"
                     f"Decide your next action based on current progress. If you believe the goal is achieved, include 'GOAL_COMPLETE' in your response."
                 )
+
+                # Memory injection
+                if getattr(self, "_enable_memory", False):
+                    memory_content = self.file_comm.read_memory(agent.config.id)
+                    if memory_content:
+                        prompt += f"\n\n## Previous Context\n{memory_content}"
+                    memory_file = self.file_comm.memory_path(agent.config.id)
+                    prompt += (
+                        f"\n\n## Memory Instruction\n"
+                        f"After completing your task, write a brief summary (max 200 words) to: {memory_file}"
+                    )
 
                 result = await agent.execute(prompt)
 

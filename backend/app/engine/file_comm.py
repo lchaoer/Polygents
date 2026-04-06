@@ -14,7 +14,7 @@ class FileComm:
 
     def init_workspace(self):
         """Initialize workspace directory structure"""
-        for d in ["inbox", "shared", "artifacts", "logs", ".polygents", ".polygents/agents"]:
+        for d in ["inbox", "shared", "artifacts", "logs", ".polygents", ".polygents/agents", ".memory"]:
             (self.base_dir / d).mkdir(parents=True, exist_ok=True)
 
     def init_agent(self, agent_id: str):
@@ -106,6 +106,17 @@ class FileComm:
 
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(entry)
+
+    def read_memory(self, agent_id: str) -> str:
+        """Read agent's persistent memory file"""
+        path = self.base_dir / ".memory" / f"{agent_id}.md"
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+        return ""
+
+    def memory_path(self, agent_id: str) -> str:
+        """Return the absolute path to agent's memory file"""
+        return str(self.base_dir / ".memory" / f"{agent_id}.md")
 
     def _parse_frontmatter(self, text: str) -> tuple[dict, str]:
         """Parse YAML frontmatter"""

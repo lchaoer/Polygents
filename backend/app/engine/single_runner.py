@@ -64,6 +64,19 @@ class SingleRunner:
         if workflow.default_goal:
             prompt += f"\n\nGoal: {workflow.default_goal}"
 
+        # Memory injection
+        if getattr(workflow, "enable_memory", False):
+            memory_content = self.file_comm.read_memory(agent_id)
+            if memory_content:
+                prompt += f"\n\n## Previous Context\n{memory_content}"
+            memory_file = self.file_comm.memory_path(agent_id)
+            prompt += (
+                f"\n\n## Memory Instruction\n"
+                f"After completing your task, write a brief summary (max 200 words) of what you did "
+                f"and key outcomes to: {memory_file}\n"
+                f"This summary will be available to you in future runs as context."
+            )
+
         try:
             result = await agent.execute(prompt)
 

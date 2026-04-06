@@ -38,6 +38,14 @@ export default function WorkflowEditPage() {
   const [availablePlugins, setAvailablePlugins] = useState<{name: string; scope: string; install_path: string; version: string}[]>([]);
   const [agentPlugins, setAgentPlugins] = useState<string[]>([]);
 
+  // Schedule config
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduleTime, setScheduleTime] = useState("09:00");
+  const [scheduleFrequency, setScheduleFrequency] = useState("daily");
+
+  // Memory config
+  const [enableMemory, setEnableMemory] = useState(false);
+
   // Load template list + available skills + plugins
   useEffect(() => {
     fetch(`${API_BASE}/api/teams/templates`)
@@ -76,6 +84,20 @@ export default function WorkflowEditPage() {
           setAgentModel(data.agent_config.model || "");
           setAgentSkills(data.agent_config.skills || []);
           setAgentPlugins(data.agent_config.plugins || []);
+        }
+        if (data.schedule) {
+          setScheduleEnabled(!!data.schedule.enabled);
+          const cron = data.schedule.cron || "0 9 * * *";
+          const parts = cron.split(" ");
+          if (parts.length === 5) {
+            setScheduleTime(`${parts[1].padStart(2, "0")}:${parts[0].padStart(2, "0")}`);
+            if (parts[4] === "1-5") setScheduleFrequency("weekdays");
+            else if (parts[4] === "0,6") setScheduleFrequency("weekends");
+            else setScheduleFrequency("daily");
+          }
+        }
+        if (data.enable_memory) {
+          setEnableMemory(true);
         }
       })
       .catch((e) => addToast("error", e.message));
@@ -133,6 +155,19 @@ export default function WorkflowEditPage() {
     } else {
       body.template_id = templateId || null;
     }
+
+    // Schedule config
+    if (scheduleEnabled) {
+      const [h, m] = scheduleTime.split(":").map(Number);
+      let dow = "*";
+      if (scheduleFrequency === "weekdays") dow = "1-5";
+      else if (scheduleFrequency === "weekends") dow = "0,6";
+      body.schedule = { enabled: true, cron: `${m} ${h} * * ${dow}` };
+    } else {
+      body.schedule = null;
+    }
+
+    body.enable_memory = enableMemory;
 
     const url = editId
       ? `${API_BASE}/api/workflows/${editId}`
@@ -336,6 +371,67 @@ export default function WorkflowEditPage() {
             onChange={(e) => setDefaultGoal(e.target.value)}
             placeholder="e.g.: Report includes code changes, test coverage, TODOs"
           />
+        </div>
+
+        <div className="schedule-section">
+          <label className="wf-label">
+            <input
+              type="checkbox"
+              checked={scheduleEnabled}
+              onChange={(e) => setScheduleEnabled(e.target.checked)}
+              style={{ marginRight: 8 }}
+            />
+            Enable Scheduled Execution
+          </label>
+          {scheduleEnabled && (
+            <div className="schedule-options">
+              <div className="schedule-row">
+                <label className="schedule-label">Frequency</label>
+                <select
+                  className="wf-input schedule-select"
+                  value={scheduleFrequency}
+                  onChange={(e) => setScheduleFrequency(e.target.value)}
+                >
+                  <option value="daily">Every day</option>
+                  <option value="weekdays">Weekdays (Mon-Fri)</option>
+                  <option value="weekends">Weekends</option>
+                </select>
+              </div>
+              <div className="schedule-row">
+                <label className="schedule-label">Time (UTC)</label>
+                <input
+                  type="time"
+                  className="wf-input schedule-time"
+                  value={scheduleTime}
+                  onChange={(e) => setScheduleTime(e.target.value)}
+                />
+              </div>
+              <div className="schedule-cron">
+                Cron: {(() => {
+                  const [h, m] = scheduleTime.split(":").map(Number);
+                  let dow = "*";
+                  if (scheduleFrequency === "weekdays") dow = "1-5";
+                  else if (scheduleFrequency === "weekends") dow = "0,6";
+                  return `${m} ${h} * * ${dow}`;
+                })()}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="memory-section">
+          <label className="wf-label">
+            <input
+              type="checkbox"
+              checked={enableMemory}
+              onChange={(e) => setEnableMemory(e.target.checked)}
+              style={{ marginRight: 8 }}
+            />
+            Enable Agent Memory
+          </label>
+          <div className="wf-hint">
+            When enabled, agents maintain persistent memory across runs — avoiding repeated content in daily tasks.
+          </div>
         </div>
 
         <div className="wf-actions">

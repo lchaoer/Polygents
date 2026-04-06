@@ -122,9 +122,10 @@ class Orchestrator:
                 inst.config.system_prompt = payload["system_prompt"]
                 await self._notify("running", detail=f"Modified system prompt for {agent_id}")
 
-    async def run(self, user_prompt: str, goal: str | None = None, run_id: str | None = None):
+    async def run(self, user_prompt: str, goal: str | None = None, run_id: str | None = None, enable_memory: bool = False):
         """Execute full loop: Manager plans → Dev executes → Evaluator reviews → final validation"""
         self._current_run_id = run_id
+        self._enable_memory = enable_memory
         try:
             await self._run_inner(user_prompt, goal)
         except asyncio.CancelledError:
@@ -179,7 +180,14 @@ class Orchestrator:
         # Write tasks_summary
         if self.run_store and self._current_run_id:
             summary = [
-                {"id": t.id, "description": t.description, "status": t.status.value}
+                {
+                    "id": t.id,
+                    "description": t.description,
+                    "status": t.status.value,
+                    "assignee": t.assignee,
+                    "attempts": getattr(t, "_attempts", 1),
+                    "error_detail": getattr(t, "_last_eval", "") if t.status == TaskStatus.rejected else "",
+                }
                 for t in tasks
             ]
             self.run_store.update_run(self._current_run_id, tasks_summary=summary)
@@ -233,6 +241,8 @@ class Orchestrator:
             await self._notify("failed", detail="No Agent with reviewer role found")
             return
 
+        last_eval_result = ""
+
         for attempt in range(self.max_retries):
             # Pause check: wait before task starts
             await self._paused.wait()
@@ -265,6 +275,17 @@ class Orchestrator:
                     last_feedback = feedback[-1]["body"]
                     dev_prompt += f"\n\nPrevious review feedback:\n{last_feedback}"
 
+            # Memory injection for executor
+            if getattr(self, "_enable_memory", False):
+                memory_content = self.file_comm.read_memory(dev.config.id)
+                if memory_content:
+                    dev_prompt += f"\n\n## Previous Context\n{memory_content}"
+                memory_file = self.file_comm.memory_path(dev.config.id)
+                dev_prompt += (
+                    f"\n\n## Memory Instruction\n"
+                    f"After completing your task, write a brief summary (max 200 words) to: {memory_file}"
+                )
+
             await dev.execute(dev_prompt)
 
             # Evaluator evaluates
@@ -280,10 +301,13 @@ class Orchestrator:
             if "APPROVED" in eval_result.upper():
                 await self._notify("running", detail=f"Task approved: {task.description}")
                 task.status = TaskStatus.completed
+                task._attempts = attempt + 1  # type: ignore[attr-defined]
+                task._last_eval = ""  # type: ignore[attr-defined]
                 await self._notify_task(task, attempt + 1)
                 return
             else:
                 # Write feedback
+                last_eval_result = eval_result
                 task.status = TaskStatus.review
                 await self._notify_task(task, attempt + 1)
                 self.file_comm.send_message(
@@ -295,6 +319,8 @@ class Orchestrator:
 
         # Exceeded max retries
         task.status = TaskStatus.rejected
+        task._attempts = self.max_retries  # type: ignore[attr-defined]
+        task._last_eval = last_eval_result  # type: ignore[attr-defined]
         await self._notify_task(task, self.max_retries)
         await self._notify("running", detail=f"Task exceeded max retries: {task.description}")
 
@@ -349,6 +375,38 @@ class Orchestrator:
         """External call: user's goal decision sent via WebSocket"""
         if self._goal_decision and not self._goal_decision.done():
             self._goal_decision.set_result(decision)
+
+    async def retry_single_task(self, task_desc: str, assignee: str, run_id: str):
+        """Re-execute a single failed task and update run record"""
+        self._current_run_id = run_id
+
+        # Read existing sprint.md
+        sprint_md = self.file_comm.read_shared("sprint.md") or ""
+
+        # Construct TaskItem
+        task = TaskItem(id=f"retry-{run_id[:4]}", description=task_desc, assignee=assignee)
+
+        await self._notify("running", detail=f"Retrying task: {task_desc}")
+        await self._execute_task_loop(task, sprint_md)
+
+        # Update run record with retry result
+        if self.run_store:
+            record = self.run_store.get_run(run_id)
+            if record:
+                # Update the matching task in tasks_summary
+                for ts in record.tasks_summary:
+                    if ts.get("description") == task_desc:
+                        ts["status"] = task.status.value
+                        ts["attempts"] = ts.get("attempts", 0) + getattr(task, "_attempts", 1)
+                        ts["error_detail"] = getattr(task, "_last_eval", "")
+                        break
+
+                new_status = "completed" if task.status == TaskStatus.completed else record.status
+                self.run_store.update_run(run_id, tasks_summary=record.tasks_summary, status=new_status)
+
+        final_status = "completed" if task.status == TaskStatus.completed else "failed"
+        await self._notify(final_status, detail=f"Retry {'succeeded' if task.status == TaskStatus.completed else 'failed'}: {task_desc}")
+        self._current_run_id = None
 
     async def _notify(self, status: str, detail: str = ""):
         """Notify status change"""

@@ -10,6 +10,7 @@ import InterventionPanel from "../components/InterventionPanel";
 import AgentPalette from "../components/AgentPalette";
 import { useWebSocket } from "../hooks/useWebSocket";
 import useFlowStore from "../store/flowStore";
+import RunResultPanel from "../components/RunResultPanel";
 import { API_BASE } from "../config";
 import type { AgentConfig } from "../types";
 
@@ -18,6 +19,7 @@ export default function CanvasPage() {
   const [prompt, setPrompt] = useState("");
   const [goal, setGoal] = useState("");
   const [showGoal, setShowGoal] = useState(false);
+  const [showRunResult, setShowRunResult] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [workflowName, setWorkflowName] = useState("");
   const { send } = useWebSocket();
@@ -161,10 +163,13 @@ export default function CanvasPage() {
     return () => clearInterval(id);
   }, [runStatus, runStartTime]);
 
-  // Freeze timer when run ends
+  // Freeze timer when run ends & show result panel
   useEffect(() => {
     if (runStatus !== "running" && runStartTime) {
       setElapsed(Math.floor((Date.now() - runStartTime) / 1000));
+    }
+    if (runStatus === "completed" || runStatus === "failed") {
+      setShowRunResult(true);
     }
   }, [runStatus, runStartTime]);
 
@@ -355,6 +360,17 @@ export default function CanvasPage() {
                 <span className="run-timer">{formatElapsed(elapsed)}</span>
               </div>
             </div>
+          )}
+
+          {/* Run result panel */}
+          {showRunResult && (runStatus === "completed" || runStatus === "failed") && runId && (
+            <RunResultPanel
+              runId={runId}
+              status={runStatus}
+              detail={useFlowStore.getState().runDetail}
+              elapsed={elapsed}
+              onClose={() => setShowRunResult(false)}
+            />
           )}
 
           <div className="prompt-bar">

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import useFlowStore from "../store/flowStore";
 import { API_BASE } from "../config";
+import QuickTaskBar from "../components/QuickTaskBar";
 
 interface Workflow {
   id: string;
@@ -13,6 +14,7 @@ interface Workflow {
   default_goal: string;
   last_run_at?: string;
   last_run_status?: string;
+  schedule?: { enabled: boolean; cron: string };
 }
 
 export default function WorkflowListPage() {
@@ -106,6 +108,8 @@ export default function WorkflowListPage() {
         </button>
       </div>
 
+      <QuickTaskBar />
+
       {loading ? (
         <div className="workflow-grid">
           {[0, 1, 2].map((i) => (
@@ -173,7 +177,14 @@ export default function WorkflowListPage() {
               </div>
               <div className="workflow-card-footer">
                 <span className="wf-last-run">{formatTime(wf.last_run_at)}</span>
-                {statusLabel(wf.last_run_status)}
+                <div className="wf-footer-right">
+                  {wf.schedule?.enabled && (
+                    <span className="wf-schedule-badge" title={`Cron: ${wf.schedule.cron}`}>
+                      ⏰ {wf.schedule.cron}
+                    </span>
+                  )}
+                  {statusLabel(wf.last_run_status)}
+                </div>
               </div>
             </div>
           ))}

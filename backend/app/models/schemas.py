@@ -93,3 +93,4 @@ class RunRecord(BaseModel):
     end_time: Optional[str] = None
     tasks_summary: list[dict] = Field(default_factory=list)
     detail: str = ""
+    output_files: list[dict] = Field(default_factory=list)  # [{"path": ..., "size": ..., "action": "created"|"modified"}]

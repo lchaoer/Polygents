@@ -31,8 +31,9 @@ from app.api.logs import init_logs_api
 from app.engine.free_orchestrator import FreeOrchestrator
 from app.engine.workflow_store import WorkflowStore
 from app.engine.single_runner import SingleRunner
-from app.api.workflows import init_workflow_api
+from app.api.workflows import init_workflow_api, run_workflow_by_id
 from app.api.skills import init_skills_api
+from app.engine.scheduler import WorkflowScheduler
 
 # Global instances
 file_comm = FileComm(WORKSPACE_DIR)
@@ -129,12 +130,17 @@ async def lifespan(app: FastAPI):
     )
     init_skills_api(WORKSPACE_DIR, PROJECT_DIR)
 
+    # Start workflow scheduler
+    scheduler = WorkflowScheduler(workflow_store, run_workflow_by_id)
+    scheduler_task = asyncio.create_task(scheduler.start())
+
     # Inject orchestrator into WebSocket handler
     init_ws_handler(orchestrator)
 
     print(f"Polygents backend started. Workspace: {WORKSPACE_DIR}")
     yield
     watcher_task.cancel()
+    await scheduler.stop()
     print("Polygents backend stopped.")
 
 

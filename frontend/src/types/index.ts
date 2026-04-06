@@ -133,6 +133,14 @@ export interface RunRecord {
   status: string;
   start_time: string;
   end_time?: string;
-  tasks_summary: Record<string, unknown>[];
+  tasks_summary: {
+    id: string;
+    description: string;
+    status: string;
+    assignee: string;
+    attempts: number;
+    error_detail: string;
+  }[];
   detail: string;
+  output_files: { path: string; size: number; action: "created" | "modified" }[];
 }

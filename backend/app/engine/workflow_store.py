@@ -20,6 +20,8 @@ class WorkflowConfig(BaseModel):
     created_at: str = ""
     last_run_at: Optional[str] = None
     last_run_status: Optional[str] = None
+    schedule: Optional[dict] = None  # {"cron": "0 9 * * *", "enabled": True}
+    enable_memory: bool = False
 
 
 class WorkflowStore:
