@@ -1,159 +1,159 @@
-# Polygents - 多智能体协作框架设计文档
+# Polygents - Multi-Agent Collaboration Framework Design Document
 
-> **版本**: v0.2
-> **日期**: 2026-04-05
-> **状态**: Phase 1 & 2 已实现
-
----
-
-## 1. 项目愿景
-
-Polygents 是一个**角色编排式多智能体协作框架**，核心理念是"给 AI 一个组织架构"——像一家公司一样，不同 Agent 拥有不同角色、职责和技能，通过文件系统协作完成复杂任务。
-
-### 1.1 核心差异化
-
-| 特性 | Polygents | CrewAI | OpenAI Agents SDK |
-|------|-----------|--------|-------------------|
-| 通信机制 | **文件系统（Markdown）** | 内存传递 | 函数调用 |
-| 团队创建 | **对话式动态生成 + 预设模板** | YAML 静态配置 | 代码定义 |
-| 用户界面 | **Web UI 优先（拖拽+对话）** | CLI/代码 | 代码 |
-| 后端模型 | 先 Claude，可扩展 | 模型无关 | 偏 OpenAI |
-| 通信可追溯 | 天然支持（文件即记录） | 需额外配置 | 不支持 |
-
-### 1.2 目标用户与场景
-
-- **软件开发团队**: 架构师 + 开发者 + 测试员 + Code Reviewer 协作
-- **研究分析团队**: 研究员 + 数据分析师 + 报告撰写者 协作
-- **通用任务编排**: 任何需要多角色协作的复杂任务
+> **Version**: v0.2
+> **Date**: 2026-04-05
+> **Status**: Phase 1 & 2 Implemented
 
 ---
 
-## 2. 核心概念
+## 1. Project Vision
 
-### 2.0 概念总览
+Polygents is a **role-orchestrated multi-agent collaboration framework**. The core idea is "give AI an organizational structure" — like a company, different Agents have different roles, responsibilities, and skills, collaborating through the file system to complete complex tasks.
 
-系统由四个层级的角色协作，各司其职：
+### 1.1 Core Differentiation
+
+| Feature | Polygents | CrewAI | OpenAI Agents SDK |
+|---------|-----------|--------|-------------------|
+| Communication | **File system (Markdown)** | In-memory passing | Function calls |
+| Team Creation | **Conversational dynamic generation + preset templates** | YAML static config | Code definition |
+| User Interface | **Web UI first (drag-and-drop + conversation)** | CLI/Code | Code |
+| Backend Model | Claude first, extensible | Model-agnostic | OpenAI-biased |
+| Communication Traceability | Native support (files are records) | Requires extra config | Not supported |
+
+### 1.2 Target Users and Scenarios
+
+- **Software Development Teams**: Architect + Developer + Tester + Code Reviewer collaboration
+- **Research & Analysis Teams**: Researcher + Data Analyst + Report Writer collaboration
+- **General Task Orchestration**: Any complex task requiring multi-role collaboration
+
+---
+
+## 2. Core Concepts
+
+### 2.0 Concept Overview
+
+The system consists of four levels of role collaboration, each with its own responsibilities:
 
 ```mermaid
 graph TB
-    U[用户] -->|对话/选模板| MA[Meta-Agent<br/>组建团队]
-    MA -->|生成| T[Team 团队]
+    U[User] -->|Conversation/Select Template| MA[Meta-Agent<br/>Build Team]
+    MA -->|Generate| T[Team]
     T --> A1[Manager]
     T --> A2[Dev]
     T --> A3[Evaluator]
-    O[Orchestrator<br/>任务分配] -->|分配任务| A2
-    O -->|分配任务| A3
-    A1 -->|拆解任务列表| O
-    A2 -->|文件通信| FS[(文件系统<br/>Workspace)]
-    A3 -->|文件通信| FS
-    A1 -->|文件通信| FS
+    O[Orchestrator<br/>Task Assignment] -->|Assign Task| A2
+    O -->|Assign Task| A3
+    A1 -->|Decompose Task List| O
+    A2 -->|File Communication| FS[(File System<br/>Workspace)]
+    A3 -->|File Communication| FS
+    A1 -->|File Communication| FS
 ```
 
-**关键分工：**
+**Key Division of Labor:**
 
-| 角色 | 职责边界 | 什么时候介入 |
-|------|----------|------------|
-| **Meta-Agent** | 组建团队（创建 Agent 实例和配置） | 启动阶段，团队建好后退出 |
-| **Manager** | 理解需求，拆解为任务列表 | 收到用户 prompt 后 |
-| **Orchestrator** | 把任务列表分配给具体 Agent，调度执行 | Manager 拆完任务后 |
-| **Dev** | 执行具体任务，产出代码/文档 | 被 Orchestrator 分配任务后 |
-| **Evaluator** | 评估产出质量，通过或打回 | Dev 完成任务后 |
+| Role | Responsibility Scope | When to Engage |
+|------|----------------------|----------------|
+| **Meta-Agent** | Build team (create Agent instances and config) | Startup phase, exits after team is built |
+| **Manager** | Understand requirements, decompose into task list | After receiving user prompt |
+| **Orchestrator** | Assign tasks from the list to specific Agents, schedule execution | After Manager finishes task decomposition |
+| **Dev** | Execute specific tasks, produce code/docs | After being assigned tasks by Orchestrator |
+| **Evaluator** | Evaluate output quality, approve or reject | After Dev completes a task |
 
-### 2.1 Agent（智能体）
+### 2.1 Agent
 
-Agent 是系统中的基本工作单元。
+Agent is the basic working unit in the system.
 
-**属性：**
+**Attributes:**
 
-| 属性 | 说明 | 示例 |
-|------|------|------|
-| **id** | 唯一标识 | "dev" |
-| **role** | 角色名称 | "高级后端工程师" |
-| **role_type** | 角色类型 | "planner" / "executor" / "reviewer" |
-| **system_prompt** | 系统提示词 | "你是高级开发工程师..." |
-| **tools** | 可用的 Claude Code 工具 | ["Read", "Write", "Edit", "Bash", "Glob", "Grep"] |
-| **skills** | 加载的 Skill 文件 | ["tdd", "code-review"] |
-| **plugins** | 加载的 Claude Code 插件 | ["playwright"] |
-| **model** | 使用的模型 | "claude-sonnet-4-6" / "claude-opus-4-6" |
-| **provider** | 后端模型 | "claude" |
+| Attribute | Description | Example |
+|-----------|-------------|---------|
+| **id** | Unique identifier | "dev" |
+| **role** | Role name | "Senior Backend Engineer" |
+| **role_type** | Role type | "planner" / "executor" / "reviewer" |
+| **system_prompt** | System prompt | "You are a senior development engineer..." |
+| **tools** | Available Claude Code tools | ["Read", "Write", "Edit", "Bash", "Glob", "Grep"] |
+| **skills** | Loaded Skill files | ["tdd", "code-review"] |
+| **plugins** | Loaded Claude Code plugins | ["playwright"] |
+| **model** | Model used | "claude-sonnet-4-6" / "claude-opus-4-6" |
+| **provider** | Backend model | "claude" |
 
-### 2.2 Team（团队）
+### 2.2 Team
 
-一组 Agent 的集合，由 Meta-Agent 创建：
+A collection of Agents, created by Meta-Agent:
 
-- **成员列表**: 哪些 Agent 在团队中（MVP：Manager + Dev + Evaluator）
-- **协作模式**: 顺序执行 / 并行执行 / 自由协作
-- **共享上下文**: 团队级别的知识和目标（shared/ 目录）
-- **工作空间**: 文件系统中的工作目录
+- **Member list**: Which Agents are in the team (MVP: Manager + Dev + Evaluator)
+- **Collaboration mode**: Sequential / Parallel / Free collaboration
+- **Shared context**: Team-level knowledge and goals (shared/ directory)
+- **Workspace**: Working directory in the file system
 
-### 2.3 Task（任务）
+### 2.3 Task
 
-由 Manager 拆解、Orchestrator 分配的具体工作：
+Specific work decomposed by Manager and assigned by Orchestrator:
 
-- **描述**: 任务内容
-- **分配**: 由 Orchestrator 指定执行者
-- **依赖**: 前置任务
-- **产出**: 期望的输出（文件/代码/报告）
-- **状态**: pending → in_progress → review → completed / rejected
+- **Description**: Task content
+- **Assignment**: Executor designated by Orchestrator
+- **Dependencies**: Prerequisite tasks
+- **Output**: Expected output (files/code/reports)
+- **Status**: pending → in_progress → review → completed / rejected
 
-### 2.4 Orchestrator（编排引擎）
+### 2.4 Orchestrator
 
-Orchestrator 是**系统内部组件**（不是 Agent），负责：
+Orchestrator is an **internal system component** (not an Agent), responsible for:
 
-- 接收 Manager 拆解好的任务列表
-- 根据角色将任务分配给对应 Agent
-- 管理执行顺序和依赖关系
-- 监控进度，处理超时和重试
-- 协调闭环（Evaluator 打回 → 重新分配）
+- Receiving the task list decomposed by Manager
+- Assigning tasks to corresponding Agents based on roles
+- Managing execution order and dependencies
+- Monitoring progress, handling timeouts and retries
+- Coordinating the closed loop (Evaluator rejects → reassign)
 
-### 2.5 Meta-Agent（元代理）
+### 2.5 Meta-Agent
 
-通过 SSE 流式对话引导用户描述需求，自动生成团队模板：
+Guides users through SSE streaming conversation to describe requirements and automatically generates team templates:
 
-- 通过对话理解用户需求，规划团队角色组成
-- 也可从预设模板快速创建
-- 自动创建 YAML 模板文件并实例化团队
-- 团队建好后退出，后续工作交给 Orchestrator
-- **API**: `POST /api/meta-agent/chat`（SSE 流式）、`POST /api/meta-agent/finalize`（手动回退）
+- Understands user needs through conversation, plans team role composition
+- Can also quickly create from preset templates
+- Automatically creates YAML template files and instantiates teams
+- Exits after team is built, subsequent work is handled by Orchestrator
+- **API**: `POST /api/meta-agent/chat` (SSE streaming), `POST /api/meta-agent/finalize` (manual fallback)
 
 ---
 
-## 3. 文件通信机制
+## 3. File Communication Mechanism
 
-这是 Polygents 最核心的设计特色——**Agent 间通过文件系统中的 Markdown 文件通信**。
+This is Polygents' most core design feature — **Agents communicate through Markdown files in the file system**.
 
-### 3.1 工作空间目录结构
+### 3.1 Workspace Directory Structure
 
 ```
 workspace/
-├── .polygents/               # 系统配置
-│   ├── team.yaml             # 团队配置
-│   └── agents/               # Agent 配置文件
+├── .polygents/               # System configuration
+│   ├── team.yaml             # Team configuration
+│   └── agents/               # Agent configuration files
 │       ├── manager.yaml
 │       ├── dev.yaml
 │       └── evaluator.yaml
-├── inbox/                    # 收件箱（Agent 间直接通信）
+├── inbox/                    # Inbox (direct Agent-to-Agent communication)
 │   ├── manager/
 │   │   └── 001-replan-request.md
 │   ├── dev/
 │   │   └── 001-task-assignment.md
 │   └── evaluator/
 │       └── 001-review-request.md
-├── shared/                   # 共享空间（团队级别）
-│   ├── sprint.md             # Manager 生成的任务规划
-│   ├── context.md            # 项目上下文
-│   └── decisions.md          # 决策记录
-├── artifacts/                # 工件产出
-│   ├── code/                 # 代码产出
-│   ├── docs/                 # 文档产出
-│   └── reports/              # 报告产出
-└── logs/                     # 通信日志（自动生成）
-    └── 2026-03-30.md         # 按日期归档的通信记录
+├── shared/                   # Shared space (team level)
+│   ├── sprint.md             # Sprint plan generated by Manager
+│   ├── context.md            # Project context
+│   └── decisions.md          # Decision records
+├── artifacts/                # Artifact outputs
+│   ├── code/                 # Code outputs
+│   ├── docs/                 # Documentation outputs
+│   └── reports/              # Report outputs
+└── logs/                     # Communication logs (auto-generated)
+    └── 2026-03-30.md         # Communication records archived by date
 ```
 
-### 3.2 通信消息格式
+### 3.2 Communication Message Format
 
-每条消息是一个 Markdown 文件，带有 YAML frontmatter：
+Each message is a Markdown file with YAML frontmatter:
 
 ```markdown
 ---
@@ -166,126 +166,126 @@ timestamp: 2026-03-30T10:23:00
 related_to: null
 ---
 
-## 任务：实现用户认证 API
+## Task: Implement User Authentication API
 
-### 需求
-- POST /api/auth/login 接口
-- JWT token 方式认证
-- 支持刷新 token
+### Requirements
+- POST /api/auth/login endpoint
+- JWT token authentication
+- Support token refresh
 
-### 约束
-- 使用 FastAPI
-- 密码需 bcrypt 加密
+### Constraints
+- Use FastAPI
+- Passwords must be bcrypt encrypted
 
-### 期望产出
+### Expected Output
 - `artifacts/code/auth.py`
 - `artifacts/code/test_auth.py`
 ```
 
-### 3.3 通信模式
+### 3.3 Communication Patterns
 
 ```mermaid
 graph LR
-    subgraph "1:1 直接通信"
-        A1[Agent A] -->|写入 inbox/B/| A2[Agent B]
-        A2 -->|写入 inbox/A/| A1
+    subgraph "1:1 Direct Communication"
+        A1[Agent A] -->|Write to inbox/B/| A2[Agent B]
+        A2 -->|Write to inbox/A/| A1
     end
 
-    subgraph "广播通信"
-        A3[Agent C] -->|写入 shared/| ALL[所有 Agent<br/>读取 shared/]
+    subgraph "Broadcast Communication"
+        A3[Agent C] -->|Write to shared/| ALL[All Agents<br/>Read shared/]
     end
 
-    subgraph "工件传递"
-        A4[Agent D] -->|写入 artifacts/| A5[Agent E<br/>读取 artifacts/]
+    subgraph "Artifact Passing"
+        A4[Agent D] -->|Write to artifacts/| A5[Agent E<br/>Read artifacts/]
     end
 ```
 
-### 3.4 文件并发读写机制
+### 3.4 File Concurrent Read/Write Mechanism
 
-多 Agent 并行执行时，需要避免文件读写冲突：
+When multiple Agents execute in parallel, file read/write conflicts must be avoided:
 
 ```mermaid
 graph LR
-    subgraph "并行读（无限制）"
-        A1[Agent A] -->|读| S[(shared/)]
-        A2[Agent B] -->|读| S
-        A3[Agent C] -->|读| S
+    subgraph "Parallel Read (Unlimited)"
+        A1[Agent A] -->|Read| S[(shared/)]
+        A2[Agent B] -->|Read| S
+        A3[Agent C] -->|Read| S
     end
 
-    subgraph "独占写"
-        A4[Agent X] -->|"获取写锁 → 写入 → 释放写锁"| S2[(shared/)]
-        A5[Agent Y] -.->|"等待写锁..."| S2
+    subgraph "Exclusive Write"
+        A4[Agent X] -->|"Acquire write lock → Write → Release write lock"| S2[(shared/)]
+        A5[Agent Y] -.->|"Waiting for write lock..."| S2
     end
 
-    subgraph "天然隔离"
-        A6[Agent A] -->|写| I1[(inbox/A/)]
-        A7[Agent B] -->|写| I2[(inbox/B/)]
+    subgraph "Natural Isolation"
+        A6[Agent A] -->|Write| I1[(inbox/A/)]
+        A7[Agent B] -->|Write| I2[(inbox/B/)]
     end
 ```
 
-**规则：**
+**Rules:**
 
-| 目录 | 读权限 | 写权限 | 说明 |
-|------|--------|--------|------|
-| `inbox/{自己}/` | 本人 | 其他 Agent | 别人给我发消息，我来读 |
-| `inbox/{别人}/` | 无 | 本人 | 我给别人发消息 |
-| `shared/` | 所有 Agent | **独占写**（同时只允许一个 Agent 写） | 写时获取锁，其他 Agent 可继续读或做别的事 |
-| `artifacts/{自己}/` | 所有 Agent | 本人 | 我的产出，别人只能看 |
+| Directory | Read Permission | Write Permission | Description |
+|-----------|-----------------|------------------|-------------|
+| `inbox/{self}/` | Self | Other Agents | Others send me messages, I read them |
+| `inbox/{others}/` | None | Self | I send messages to others |
+| `shared/` | All Agents | **Exclusive write** (only one Agent can write at a time) | Acquire lock when writing, other Agents can continue reading or doing other work |
+| `artifacts/{self}/` | All Agents | Self | My outputs, others can only view |
 
-**写锁机制（MVP 简单实现）：**
-- 使用文件锁（如 `shared/.write_lock`）
-- Agent 写 shared/ 前先获取锁，写完释放
-- 获取不到锁时，Agent 继续做其他不需要写 shared/ 的工作
-- 超时自动释放（防止死锁）
+**Write Lock Mechanism (MVP Simple Implementation):**
+- Use file locks (e.g., `shared/.write_lock`)
+- Agent acquires lock before writing to shared/, releases after writing
+- When lock cannot be acquired, Agent continues doing other work that doesn't require writing to shared/
+- Auto-release on timeout (prevent deadlocks)
 
-### 3.5 文件通信的优势
+### 3.5 Advantages of File Communication
 
-1. **可追溯**: 所有通信自动留痕，支持 git 版本控制
-2. **人类可读**: 用户随时可以阅读和编辑任何通信内容
-3. **容错恢复**: Agent 崩溃后可从文件恢复状态
-4. **异步友好**: 天然支持异步协作，无需实时连接
-5. **可审计**: 所有决策过程透明可查
+1. **Traceable**: All communications are automatically recorded, supports git version control
+2. **Human-readable**: Users can read and edit any communication content at any time
+3. **Fault-tolerant recovery**: Agent can recover state from files after crash
+4. **Async-friendly**: Naturally supports asynchronous collaboration, no real-time connection needed
+5. **Auditable**: All decision processes are transparent and inspectable
 
 ---
 
-## 4. 核心角色与执行闭环
+## 4. Core Roles and Execution Closed Loop
 
-Polygents MVP 内置三个固定角色：**Manager / Dev / Evaluator**，形成"计划-执行-评估"自动闭环。
+Polygents MVP has three built-in fixed roles: **Manager / Dev / Evaluator**, forming an automated "Plan-Execute-Evaluate" closed loop.
 
-### 4.1 三角色定义
+### 4.1 Three-Role Definition
 
-| 角色 | 职责 | 输入 | 输出 |
-|------|------|------|------|
-| **Manager** | 理解用户需求，拆解为 Sprint（high-level 规划） | 用户 prompt | `shared/sprint.md`（任务列表+架构规划） |
-| **Dev** | 根据 Sprint 规划，逐个执行具体任务 | Sprint 规划 | `artifacts/` 下的代码/文档等产出 |
-| **Evaluator** | 评估 Dev 的产出是否符合要求 | Dev 产出 + Sprint 标准 | `inbox/manager/` 或 `inbox/dev/` 评估报告 |
+| Role | Responsibility | Input | Output |
+|------|----------------|-------|--------|
+| **Manager** | Understand user requirements, decompose into Sprint (high-level planning) | User prompt | `shared/sprint.md` (task list + architecture plan) |
+| **Dev** | Execute specific tasks according to Sprint plan | Sprint plan | Code/docs and other outputs under `artifacts/` |
+| **Evaluator** | Evaluate whether Dev's output meets requirements | Dev output + Sprint criteria | Evaluation report in `inbox/manager/` or `inbox/dev/` |
 
-### 4.2 执行闭环流程
+### 4.2 Execution Closed Loop Flow
 
 ```mermaid
 graph TD
-    U[用户] -->|对话/选模板| MA[Meta-Agent<br/>组建团队]
-    MA -->|创建 Team| M[Manager<br/>拆解任务]
-    U -->|输入 Prompt| M
-    M -->|任务列表| O[Orchestrator<br/>分配任务]
-    O -->|分配| D[Dev<br/>执行任务]
-    D -->|产出| E[Evaluator<br/>评估]
-    E -->|通过| DONE[✅ 完成<br/>通知用户]
-    E -->|"不通过：实现问题"| D
-    E -->|"不通过：规划问题"| M
-    M -->|重新拆解| O
+    U[User] -->|Conversation/Select Template| MA[Meta-Agent<br/>Build Team]
+    MA -->|Create Team| M[Manager<br/>Decompose Tasks]
+    U -->|Input Prompt| M
+    M -->|Task List| O[Orchestrator<br/>Assign Tasks]
+    O -->|Assign| D[Dev<br/>Execute Tasks]
+    D -->|Output| E[Evaluator<br/>Evaluate]
+    E -->|Pass| DONE[✅ Complete<br/>Notify User]
+    E -->|"Fail: Implementation Issue"| D
+    E -->|"Fail: Planning Issue"| M
+    M -->|Re-decompose| O
 ```
 
-**关键规则：**
-- Evaluator 不通过时自动重试，不需要用户介入
-- 反馈给谁取决于问题类型：实现质量问题 → 回 Dev，需求理解/拆解问题 → 回 Manager
-- 设置最大重试次数（默认 3 轮），超过后暂停并通知用户
+**Key Rules:**
+- When Evaluator rejects, automatic retry without user intervention
+- Who receives feedback depends on the issue type: implementation quality issues → back to Dev, requirement understanding/decomposition issues → back to Manager
+- Maximum retry count is set (default 3 rounds), pauses and notifies user when exceeded
 
-### 4.3 完整执行时序
+### 4.3 Complete Execution Sequence
 
 ```mermaid
 sequenceDiagram
-    participant U as 用户
+    participant U as User
     participant UI as Web UI
     participant MA as Meta-Agent
     participant M as Manager
@@ -293,73 +293,73 @@ sequenceDiagram
     participant D as Dev
     participant E as Evaluator
 
-    U->>UI: 选择模板或对话描述需求
-    UI->>MA: 创建团队请求
-    MA->>MA: 生成 Agent 配置
-    MA-->>UI: 团队就绪，展示画布
-    U->>UI: 确认团队 / 微调配置
-    U->>UI: 输入 prompt（如"做一个 TODO App"）
+    U->>UI: Select template or describe requirements via conversation
+    UI->>MA: Create team request
+    MA->>MA: Generate Agent configuration
+    MA-->>UI: Team ready, display canvas
+    U->>UI: Confirm team / fine-tune configuration
+    U->>UI: Input prompt (e.g., "Build a TODO App")
 
-    UI->>M: 转发 prompt
-    M->>M: 分析需求，拆解为任务列表
-    M-->>O: shared/sprint.md（含10个任务）
-    Note over M: Sprint 包含：目标、任务列表、<br/>架构约束、验收标准
+    UI->>M: Forward prompt
+    M->>M: Analyze requirements, decompose into task list
+    M-->>O: shared/sprint.md (containing 10 tasks)
+    Note over M: Sprint contains: objectives, task list,<br/>architecture constraints, acceptance criteria
 
-    O->>O: 解析任务依赖，排定执行顺序
+    O->>O: Parse task dependencies, schedule execution order
 
-    loop 每个任务（由 Orchestrator 分配）
+    loop Each task (assigned by Orchestrator)
         O-->>D: inbox/dev/task-001.md
-        D->>D: 阅读任务，执行开发
+        D->>D: Read task, execute development
         D-->>E: inbox/evaluator/review-001.md
 
-        E->>E: 对照 Sprint 标准评估产出
-        alt 评估通过
+        E->>E: Evaluate output against Sprint criteria
+        alt Evaluation passed
             E-->>O: inbox/orchestrator/done-001.md
-            O->>O: 标记任务完成，分配下一个
-        else 实现有问题
+            O->>O: Mark task complete, assign next
+        else Implementation issue
             E-->>D: inbox/dev/feedback-001.md
-            Note over E: 🔄 Dev 修改后重新提交
-        else 规划有问题
+            Note over E: 🔄 Dev revises and resubmits
+        else Planning issue
             E-->>M: inbox/manager/replan-001.md
-            M->>M: 调整规划
-            M-->>O: 更新 shared/sprint.md
-            Note over E: 🔄 Manager 调整后重新分配
+            M->>M: Adjust plan
+            M-->>O: Update shared/sprint.md
+            Note over E: 🔄 Manager adjusts then reassigns
         end
     end
 
-    O-->>UI: Sprint 全部完成
-    UI->>U: 展示最终产出
+    O-->>UI: Sprint fully completed
+    UI->>U: Display final output
 ```
 
-### 4.4 角色配置示例
+### 4.4 Role Configuration Example
 
 ```yaml
 roles:
   manager:
     role_type: planner
     system_prompt: |
-      你是项目经理。根据用户需求，生成清晰的 Sprint 规划。
-      规划应包含：项目目标、任务拆解（编号）、架构建议、验收标准。
-      输出到 shared/sprint.md。
+      You are a project manager. Generate a clear Sprint plan based on user requirements.
+      The plan should include: project objectives, task decomposition (numbered), architecture suggestions, acceptance criteria.
+      Output to shared/sprint.md.
     tools: ["Read", "Write", "Glob", "Grep"]
     model: claude-sonnet-4-6
 
   dev:
     role_type: executor
     system_prompt: |
-      你是高级开发工程师。阅读 Sprint 规划，逐个完成分配的任务。
-      写出高质量、可运行的代码。产出放到 artifacts/ 目录下。
-      完成后通知 Evaluator 审查。
+      You are a senior development engineer. Read the Sprint plan and complete assigned tasks one by one.
+      Write high-quality, runnable code. Place outputs in the artifacts/ directory.
+      Notify Evaluator for review after completion.
     tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
     model: claude-sonnet-4-6
 
   evaluator:
     role_type: reviewer
     system_prompt: |
-      你是严格的质量评审员。对照 Sprint 中的验收标准，评估 Dev 的产出。
-      评估维度：功能完整性、代码质量、是否满足需求。
-      通过则标记完成，不通过则写明具体问题和修改建议，
-      发回给 Dev（实现问题）或 Manager（规划问题）。
+      You are a strict quality reviewer. Evaluate Dev's output against acceptance criteria in the Sprint.
+      Evaluation dimensions: functional completeness, code quality, requirement satisfaction.
+      Mark as complete if passed; if not, specify concrete issues and revision suggestions,
+      and send back to Dev (implementation issues) or Manager (planning issues).
     tools: ["Read", "Write", "Bash", "Glob", "Grep"]
     model: claude-sonnet-4-6
 
@@ -369,212 +369,212 @@ execution:
   notify_on_complete: true
 ```
 
-### 4.5 Sprint 文件示例
+### 4.5 Sprint File Example
 
-Manager 生成的 `shared/sprint.md`：
+`shared/sprint.md` generated by Manager:
 
 ```markdown
 # Sprint: TODO App
 
-## 目标
-构建一个支持增删改查的命令行 TODO 应用
+## Objectives
+Build a command-line TODO application supporting CRUD operations
 
-## 任务列表
-1. [ ] 设计数据模型（Task 类，JSON 持久化）
-2. [ ] 实现核心 CRUD 逻辑
-3. [ ] 实现 CLI 交互界面
-4. [ ] 编写单元测试
+## Task List
+1. [ ] Design data model (Task class, JSON persistence)
+2. [ ] Implement core CRUD logic
+3. [ ] Implement CLI interactive interface
+4. [ ] Write unit tests
 
-## 架构约束
+## Architecture Constraints
 - Python 3.10+
-- 使用 JSON 文件存储，不引入数据库
-- 使用 click 库做 CLI
+- Use JSON file storage, no database
+- Use click library for CLI
 
-## 验收标准
-- 所有 CRUD 操作正常工作
-- 测试覆盖率 > 80%
-- 代码有合理的错误处理
+## Acceptance Criteria
+- All CRUD operations work correctly
+- Test coverage > 80%
+- Code has reasonable error handling
 ```
 
-### 4.6 后续扩展：自定义角色
+### 4.6 Future Extension: Custom Roles
 
-当前已支持通过 Meta-Agent 对话或 Web UI 手动创建自定义角色，不限于 Manager/Dev/Evaluator。后续扩展方向：
-- 角色模板市场（社区共享）
-- 更多 Provider 适配（OpenAI 等）
+Custom roles can currently be created through Meta-Agent conversation or Web UI manual creation, not limited to Manager/Dev/Evaluator. Future extension directions:
+- Role template marketplace (community sharing)
+- More Provider adapters (OpenAI, etc.)
 
 ---
 
-## 5. Web UI 设计
+## 5. Web UI Design
 
-### 5.1 技术选型
+### 5.1 Technology Stack
 
-| 层级 | 技术 | 说明 |
-|------|------|------|
-| 前端框架 | React 19 + TypeScript | 组件化，类型安全 |
-| 画布引擎 | React Flow (@xyflow/react) | 拖拽式节点编排 |
-| UI 样式 | 纯 CSS 自定义 | 暗色主题，无第三方组件库 |
-| 状态管理 | Zustand | 轻量灵活 |
-| 路由 | React Router v7 | 客户端路由 |
-| 通信协议 | WebSocket | 实时 Agent 活动推送 |
-| 构建工具 | Vite 8 | 快速开发和构建 |
-| 后端框架 | FastAPI (Python) | 与核心引擎同语言 |
-| E2E 测试 | Playwright | 浏览器自动化测试 |
+| Layer | Technology | Description |
+|-------|------------|-------------|
+| Frontend Framework | React 19 + TypeScript | Component-based, type-safe |
+| Canvas Engine | React Flow (@xyflow/react) | Drag-and-drop node orchestration |
+| UI Styling | Pure CSS custom | Dark theme, no third-party component library |
+| State Management | Zustand | Lightweight and flexible |
+| Routing | React Router v7 | Client-side routing |
+| Communication Protocol | WebSocket | Real-time Agent activity push |
+| Build Tool | Vite 8 | Fast development and building |
+| Backend Framework | FastAPI (Python) | Same language as core engine |
+| E2E Testing | Playwright | Browser automation testing |
 
-### 5.2 页面结构
+### 5.2 Page Structure
 
 ```mermaid
 graph LR
-    subgraph "工作流管理"
-        P0["/  — 工作流列表"]
-        P0N["/workflows/new — 新建工作流"]
-        P0E["/workflows/:id/edit — 编辑工作流"]
+    subgraph "Workflow Management"
+        P0["/  — Workflow List"]
+        P0N["/workflows/new — New Workflow"]
+        P0E["/workflows/:id/edit — Edit Workflow"]
     end
 
-    subgraph "团队管理"
-        P1["/teams — 团队模板"]
-        P2["/create — 创建团队<br/>(表单/Meta-Agent 对话)"]
+    subgraph "Team Management"
+        P1["/teams — Team Templates"]
+        P2["/create — Create Team<br/>(Form/Meta-Agent Conversation)"]
     end
 
-    subgraph "执行与监控"
-        P3["/canvas — 执行画布"]
-        P4["/agent/:id — Agent 详情"]
+    subgraph "Execution & Monitoring"
+        P3["/canvas — Execution Canvas"]
+        P4["/agent/:id — Agent Details"]
     end
 
-    subgraph "记录与技能"
-        P5["/history — 运行历史"]
-        P6["/logs — 通信日志"]
-        P7["/skills — 技能管理"]
+    subgraph "Records & Skills"
+        P5["/history — Run History"]
+        P6["/logs — Communication Logs"]
+        P7["/skills — Skill Management"]
     end
 
-    P0 -->|"运行"| P3
-    P0 -->|"新建"| P0N
-    P0 -->|"编辑"| P0E
-    P1 -->|"选模板"| P3
-    P2 -->|"团队就绪"| P3
-    P3 -->|"点击节点"| P4
-    P3 -->|"查看日志"| P6
+    P0 -->|"Run"| P3
+    P0 -->|"New"| P0N
+    P0 -->|"Edit"| P0E
+    P1 -->|"Select Template"| P3
+    P2 -->|"Team Ready"| P3
+    P3 -->|"Click Node"| P4
+    P3 -->|"View Logs"| P6
 ```
 
-### 5.3 各页面功能
+### 5.3 Page Features
 
-#### 工作流列表页 (`/`)
+#### Workflow List Page (`/`)
 
-项目入口，展示所有已保存的工作流。
+Project entry point, displays all saved workflows.
 
-- **工作流卡片**: 显示名称、描述、类型(single/team)、上次运行状态
-- **一键操作**: 运行、编辑、删除
-- **新建工作流**: 跳转到创建页面
-- **空状态引导**: 无工作流时提示创建
+- **Workflow cards**: Display name, description, type (single/team), last run status
+- **One-click actions**: Run, Edit, Delete
+- **New workflow**: Navigate to creation page
+- **Empty state guidance**: Prompt to create when no workflows exist
 
-#### 工作流编辑页 (`/workflows/new`, `/workflows/:id/edit`)
+#### Workflow Edit Page (`/workflows/new`, `/workflows/:id/edit`)
 
-创建或编辑工作流配置。
+Create or edit workflow configuration.
 
-- **基本信息**: 名称、描述
-- **类型选择**: 单 Agent (`single`) 或团队 (`team`)
-- **单 Agent 模式**: 配置 Agent 的 system_prompt、tools、model
-- **团队模式**: 选择关联的团队模板
-- **预设 Prompt**: 默认任务描述
-- **预设 Goal**: 默认验收目标
+- **Basic info**: Name, description
+- **Type selection**: Single Agent (`single`) or Team (`team`)
+- **Single Agent mode**: Configure Agent's system_prompt, tools, model
+- **Team mode**: Select associated team template
+- **Preset Prompt**: Default task description
+- **Preset Goal**: Default acceptance goal
 
-#### 团队模板页 (`/teams`)
+#### Team Templates Page (`/teams`)
 
-管理团队模板。
+Manage team templates.
 
-- **模板列表**: 所有预设和自定义模板
-- **模板操作**: 创建、编辑、删除
-- **导入导出**: YAML 格式导入/导出
-- **角色预览**: 展示模板中的角色组成
+- **Template list**: All preset and custom templates
+- **Template actions**: Create, Edit, Delete
+- **Import/Export**: YAML format import/export
+- **Role preview**: Display role composition in templates
 
-#### 创建团队页 (`/create`)
+#### Create Team Page (`/create`)
 
-提供两种创建团队的方式：
+Provides two ways to create teams:
 
-- **表单模式**: 手动填写团队名称、描述、Agent 配置
-- **对话模式**: 和 Meta-Agent SSE 流式对话，描述需求后自动生成团队
-- 右侧实时预览团队配置
+- **Form mode**: Manually fill in team name, description, Agent configuration
+- **Conversation mode**: SSE streaming conversation with Meta-Agent, auto-generate team after describing requirements
+- Real-time team configuration preview on the right side
 
-#### 团队画布页 (`/canvas`)
+#### Team Canvas Page (`/canvas`)
 
-拖拽式可视化编排界面 + 运行监控。
+Drag-and-drop visual orchestration interface + run monitoring.
 
-- **Agent 卡片**: 显示角色、状态指示灯（thinking/completed）、当前任务
-- **连线**: Agent 间的通信关系和数据流
-- **侧边面板切换**: 活动流 / Agent 配置 / 工作空间文件 / 任务看板
-- **运行控制**: 暂停/继续/干预面板
-- **Prompt 输入框**: 输入任务描述，启动运行
-- **进度指示**: 总任务数、已完成数、当前任务
+- **Agent cards**: Display role, status indicator (thinking/completed), current task
+- **Connections**: Communication relationships and data flows between Agents
+- **Side panel toggle**: Activity feed / Agent config / Workspace files / Task board
+- **Run controls**: Pause/Resume/Intervene panel
+- **Prompt input box**: Enter task description to start a run
+- **Progress indicator**: Total tasks, completed count, current task
 
-#### Agent 详情页 (`/agent/:id`)
+#### Agent Details Page (`/agent/:id`)
 
-单个 Agent 的完整信息。
+Complete information for a single Agent.
 
-- 基本信息（角色、role_type、模型）
-- System Prompt 查看
-- 工具配置列表
-- 历史通信记录（inbox 消息）
-- 产出的 artifact 文件列表
+- Basic info (role, role_type, model)
+- System Prompt viewer
+- Tool configuration list
+- Historical communication records (inbox messages)
+- List of produced artifact files
 
-#### 运行历史页 (`/history`)
+#### Run History Page (`/history`)
 
-所有运行记录列表。
+List of all run records.
 
-- 运行 ID、关联模板、状态（running/completed/failed）
-- 时间范围（开始/结束）
-- 任务摘要
+- Run ID, associated template, status (running/completed/failed)
+- Time range (start/end)
+- Task summary
 
-#### 通信日志页 (`/logs`)
+#### Communication Logs Page (`/logs`)
 
-文件通信的时间线视图。
+Timeline view of file communications.
 
-- 按日期浏览日志
-- 按发送者/接收者/消息类型筛选
-- 日志条目：时间戳、发送方 → 接收方、类型标签、内容预览
+- Browse logs by date
+- Filter by sender/receiver/message type
+- Log entries: timestamp, sender → receiver, type tag, content preview
 
-#### 技能管理页 (`/skills`)
+#### Skill Management Page (`/skills`)
 
-管理 Agent 可用的 Skill 文件。
+Manage Skill files available to Agents.
 
-- 列出项目级和用户级 Skill
-- 创建/编辑/删除 Skill（Markdown + YAML frontmatter 格式）
-- Skill 加载到 Agent 后，Agent 在执行时自动获得对应能力
+- List project-level and user-level Skills
+- Create/Edit/Delete Skills (Markdown + YAML frontmatter format)
+- After loading a Skill to an Agent, the Agent automatically gains the corresponding capability during execution
 
 ---
 
-## 6. 系统架构
+## 6. System Architecture
 
-### 6.1 整体分层
+### 6.1 Overall Layered Architecture
 
 ```mermaid
 graph TB
-    subgraph "前端 (TypeScript/React)"
+    subgraph "Frontend (TypeScript/React)"
         UI[Web UI]
-        RF[React Flow 画布]
+        RF[React Flow Canvas]
         WS_C[WebSocket Client]
     end
 
-    subgraph "后端 (Python/FastAPI)"
+    subgraph "Backend (Python/FastAPI)"
         API[REST API]
         WS_S[WebSocket Server]
-        ORCH[Orchestrator 编排引擎]
+        ORCH[Orchestrator Engine]
         AM[Agent Manager]
-        FM[File Monitor 文件监控]
+        FM[File Monitor]
     end
 
-    subgraph "Agent 运行时"
+    subgraph "Agent Runtime"
         MA[Meta-Agent]
         MG[Manager]
         DV[Dev]
         EV[Evaluator]
     end
 
-    subgraph "Provider 适配层"
+    subgraph "Provider Adapter Layer"
         CP[Claude Provider]
-        OP[OpenAI Provider<br/>未来扩展]
+        OP[OpenAI Provider<br/>Future Extension]
     end
 
-    subgraph "持久层"
-        FS[(文件系统<br/>Workspace)]
+    subgraph "Persistence Layer"
+        FS[(File System<br/>Workspace)]
     end
 
     UI --> API
@@ -598,68 +598,68 @@ graph TB
     FM --> WS_S
 ```
 
-### 6.2 核心模块职责
+### 6.2 Core Module Responsibilities
 
-| 模块 | 语言 | 职责 |
-|------|------|------|
-| **Web UI** | TypeScript | 用户交互入口：首页、创建团队、画布、监控、日志 |
-| **REST API** | Python | 团队 CRUD、Agent 管理、运行控制 |
-| **WebSocket Server** | Python | 实时推送 Agent 活动和文件变动 |
-| **Orchestrator** | Python | 接收 Manager 的任务列表，分配给 Agent，管理闭环 |
-| **Agent Manager** | Python | Agent 生命周期管理（创建/启动/停止） |
-| **File Monitor** | Python | 监控 workspace 文件变化，触发事件通知前端 |
-| **Provider 适配层** | Python | 统一接口对接不同 LLM SDK |
+| Module | Language | Responsibility |
+|--------|----------|----------------|
+| **Web UI** | TypeScript | User interaction entry: homepage, create team, canvas, monitoring, logs |
+| **REST API** | Python | Team CRUD, Agent management, run control |
+| **WebSocket Server** | Python | Real-time push of Agent activities and file changes |
+| **Orchestrator** | Python | Receive Manager's task list, assign to Agents, manage closed loop |
+| **Agent Manager** | Python | Agent lifecycle management (create/start/stop) |
+| **File Monitor** | Python | Monitor workspace file changes, trigger event notifications to frontend |
+| **Provider Adapter Layer** | Python | Unified interface for connecting to different LLM SDKs |
 
-### 6.3 Provider 适配层设计
+### 6.3 Provider Adapter Layer Design
 
 ```mermaid
 graph LR
-    AM[Agent Manager] --> PI[BaseProvider<br/>抽象接口]
+    AM[Agent Manager] --> PI[BaseProvider<br/>Abstract Interface]
     PI --> CP[ClaudeProvider<br/>Claude Agent SDK]
-    PI --> OP[OpenAIProvider<br/>OpenAI<br/>未来]
-    PI --> XP[CustomProvider<br/>自定义<br/>未来]
+    PI --> OP[OpenAIProvider<br/>OpenAI<br/>Future]
+    PI --> XP[CustomProvider<br/>Custom<br/>Future]
 ```
 
-BaseProvider 需要实现的核心方法：
-- `send_message(system_prompt, prompt, tools, cwd, model, max_turns, plugins, on_activity) → str` — 发送消息并获取完整回复
-- `stream_message(system_prompt, prompt, tools, cwd, model, max_turns, plugins) → AsyncIterator[str]` — 流式响应
+Core methods that BaseProvider needs to implement:
+- `send_message(system_prompt, prompt, tools, cwd, model, max_turns, plugins, on_activity) → str` — Send message and get complete response
+- `stream_message(system_prompt, prompt, tools, cwd, model, max_turns, plugins) → AsyncIterator[str]` — Streaming response
 
-工具执行由 Agent SDK 内部处理（Claude Code CLI 子进程自主调用工具），Provider 层无需实现 `execute_tool`。
+Tool execution is handled internally by the Agent SDK (Claude Code CLI subprocess autonomously invokes tools), the Provider layer does not need to implement `execute_tool`.
 
-`on_activity` 回调用于实时汇报 Agent 思考过程（TextBlock / ThinkingBlock），通过 WebSocket 推送到前端 ActivityFeed。
+The `on_activity` callback is used to report Agent thinking process in real-time (TextBlock / ThinkingBlock), pushed to the frontend ActivityFeed via WebSocket.
 
 ---
 
-## 7. 竞品参考与学习
+## 7. Competitive Reference and Learning
 
-### 7.1 值得学习的开源项目
+### 7.1 Open Source Projects Worth Learning From
 
-| 项目 | 学什么 | GitHub |
-|------|--------|--------|
-| **CrewAI** | 角色定义、任务分配、YAML 配置 | [crewAIInc/crewAI](https://github.com/crewAIInc/crewAI) |
-| **OpenAI Agents SDK** | Handoff 模式、轻量 API 设计、Guardrails | [openai/openai-agents-python](https://github.com/openai/openai-agents-python) |
-| **LangGraph** | 有状态图编排、Human-in-loop | [langchain-ai/langgraph](https://github.com/langchain-ai/langgraph) |
-| **Claude Agent SDK** | Claude 集成、工具调用、MCP | [anthropics/claude-code](https://github.com/anthropics/claude-code) |
-| **smolagents** | 极简设计、代码优先 | [huggingface/smolagents](https://github.com/huggingface/smolagents) |
-| **MetaGPT** | 软件公司多角色模拟 | [geekan/MetaGPT](https://github.com/geekan/MetaGPT) |
-| **React Flow** | 拖拽画布 UI 实现 | [xyflow/xyflow](https://github.com/xyflow/xyflow) |
+| Project | What to Learn | GitHub |
+|---------|---------------|--------|
+| **CrewAI** | Role definition, task assignment, YAML configuration | [crewAIInc/crewAI](https://github.com/crewAIInc/crewAI) |
+| **OpenAI Agents SDK** | Handoff pattern, lightweight API design, Guardrails | [openai/openai-agents-python](https://github.com/openai/openai-agents-python) |
+| **LangGraph** | Stateful graph orchestration, Human-in-loop | [langchain-ai/langgraph](https://github.com/langchain-ai/langgraph) |
+| **Claude Agent SDK** | Claude integration, tool invocation, MCP | [anthropics/claude-code](https://github.com/anthropics/claude-code) |
+| **smolagents** | Minimalist design, code-first | [huggingface/smolagents](https://github.com/huggingface/smolagents) |
+| **MetaGPT** | Software company multi-role simulation | [geekan/MetaGPT](https://github.com/geekan/MetaGPT) |
+| **React Flow** | Drag-and-drop canvas UI implementation | [xyflow/xyflow](https://github.com/xyflow/xyflow) |
 
-### 7.2 Polygents 的差异化定位
+### 7.2 Polygents' Differentiated Positioning
 
 ```mermaid
 graph LR
-    subgraph "现有框架的不足"
-        P1["CrewAI: 只有CLI/代码，无可视化"]
-        P2["OpenAI SDK: 太轻量，无协作机制"]
-        P3["LangGraph: 学习曲线太陡"]
-        P4["MetaGPT: 偏研究，不好定制"]
+    subgraph "Shortcomings of Existing Frameworks"
+        P1["CrewAI: CLI/code only, no visualization"]
+        P2["OpenAI SDK: Too lightweight, no collaboration mechanism"]
+        P3["LangGraph: Too steep learning curve"]
+        P4["MetaGPT: Research-oriented, hard to customize"]
     end
 
-    subgraph "Polygents 填补的空白"
-        S1["Web UI 优先 + 对话式创建"]
-        S2["文件通信 = 可追溯+人类可读"]
-        S3["角色编排 + 简单直觉"]
-        S4["动态团队 + 灵活定制"]
+    subgraph "Gaps Filled by Polygents"
+        S1["Web UI first + conversational creation"]
+        S2["File communication = traceable + human-readable"]
+        S3["Role orchestration + simple and intuitive"]
+        S4["Dynamic teams + flexible customization"]
     end
 
     P1 --> S1
@@ -670,90 +670,90 @@ graph LR
 
 ---
 
-## 8. 开发路线图
+## 8. Development Roadmap
 
-### Phase 1: MVP — UX 驱动，跑通全链路 ✅
+### Phase 1: MVP — UX-Driven, End-to-End Flow ✅
 
-> 目标：用户打开 Web UI → 对话/选模板创建团队 → 画布编辑 → 输入 prompt → 看到 Manager/Dev/Evaluator 闭环协作 → 查看产出
+> Goal: User opens Web UI → Create team via conversation/template → Canvas editing → Input prompt → Watch Manager/Dev/Evaluator closed-loop collaboration → View output
 
 ```mermaid
 graph LR
-    A[Web UI 脚手架] --> B[Meta-Agent + 预设模板]
-    B --> C[团队画布页]
-    C --> D[Agent 引擎 + Claude Provider]
-    D --> E[文件通信 + 并发控制]
-    E --> F[运行监控面板]
+    A[Web UI Scaffolding] --> B[Meta-Agent + Preset Templates]
+    B --> C[Team Canvas Page]
+    C --> D[Agent Engine + Claude Provider]
+    D --> E[File Communication + Concurrency Control]
+    E --> F[Run Monitoring Panel]
 ```
 
-**前端（TypeScript/React）：**
-- [x] 项目脚手架（Vite + React + TypeScript）
-- [x] 首页：预设模板卡片 + 对话式创建入口
-- [x] 创建团队页：模板模式 / 对话模式（Meta-Agent）
-- [x] 团队画布页：React Flow 展示 Agent 卡片和通信连线
-- [x] Agent 配置面板：点击卡片可编辑角色、prompt、工具
-- [x] Prompt 输入框：在画布页输入任务描述，启动运行
-- [x] 运行监控面板：实时展示 Agent 活动流和文件通信
+**Frontend (TypeScript/React):**
+- [x] Project scaffolding (Vite + React + TypeScript)
+- [x] Homepage: Preset template cards + conversational creation entry
+- [x] Create team page: Template mode / Conversation mode (Meta-Agent)
+- [x] Team canvas page: React Flow displaying Agent cards and communication connections
+- [x] Agent config panel: Click card to edit role, prompt, tools
+- [x] Prompt input box: Enter task description on canvas page to start run
+- [x] Run monitoring panel: Real-time display of Agent activity feed and file communications
 
-**后端（Python/FastAPI）：**
-- [x] FastAPI 服务 + WebSocket 端点
-- [x] Meta-Agent：对话式创建团队 + 预设模板快速创建
-- [x] Agent 定义与生命周期管理
-- [x] ClaudeProvider 适配层（Claude Agent SDK）
-- [x] 文件通信机制（inbox / shared / artifacts + 日志）
-- [x] File Monitor：监控 workspace 文件变化，通过 WebSocket 推送到前端
-- [x] Orchestrator：接收 Manager 任务列表，分配执行，管理闭环重试
+**Backend (Python/FastAPI):**
+- [x] FastAPI service + WebSocket endpoint
+- [x] Meta-Agent: Conversational team creation + preset template quick creation
+- [x] Agent definition and lifecycle management
+- [x] ClaudeProvider adapter layer (Claude Agent SDK)
+- [x] File communication mechanism (inbox / shared / artifacts + logging)
+- [x] File Monitor: Monitor workspace file changes, push to frontend via WebSocket
+- [x] Orchestrator: Receive Manager task list, assign execution, manage closed-loop retries
 
-**MVP 内置角色：**
+**MVP Built-in Roles:**
 
-| 角色 | 职责 | 通信方向 |
-|------|------|----------|
-| `Meta-Agent` | 组建团队（启动阶段，建完退出） | → 创建 Team |
-| `Manager` | 接收用户 prompt，拆解 Sprint 任务列表 | → Orchestrator |
-| `Dev` | 根据规划执行开发，产出代码/文档 | ← Orchestrator, → Evaluator |
-| `Evaluator` | 评估产出质量，通过或打回 | ← Dev, → Orchestrator/Dev/Manager |
+| Role | Responsibility | Communication Direction |
+|------|----------------|------------------------|
+| `Meta-Agent` | Build team (startup phase, exits after completion) | → Create Team |
+| `Manager` | Receive user prompt, decompose Sprint task list | → Orchestrator |
+| `Dev` | Execute development according to plan, produce code/docs | ← Orchestrator, → Evaluator |
+| `Evaluator` | Evaluate output quality, approve or reject | ← Dev, → Orchestrator/Dev/Manager |
 
-**预设团队模板（MVP 内置）：**
+**Preset Team Templates (MVP Built-in):**
 
-| 模板 | 角色组成 | 场景 |
-|------|----------|------|
-| `dev-team` | Manager + Dev + Evaluator | 软件开发 |
-| `research-team` | Manager + Researcher + Evaluator | 调研分析 |
-| `content-team` | Manager + Writer + Evaluator | 内容创作 |
+| Template | Role Composition | Scenario |
+|----------|------------------|----------|
+| `dev-team` | Manager + Dev + Evaluator | Software Development |
+| `research-team` | Manager + Researcher + Evaluator | Research & Analysis |
+| `content-team` | Manager + Writer + Evaluator | Content Creation |
 
-### Phase 2: 交互增强 ✅
+### Phase 2: Enhanced Interaction ✅
 
-- [x] Agent 详情页（完整配置 + 历史通信 + 产出文件）
-- [x] 通信日志页（按日期浏览 + 按发送者/类型筛选）
-- [x] 在画布上拖拽添加/删除 Agent，自定义团队
-- [x] 并行执行模式（依赖解析 + 死锁检测）
-- [x] Human-in-the-loop：暂停、干预、修改 Agent 行为
-- [x] 任务看板视图（Kanban 风格）
-- [x] 工作流管理（Workflow CRUD + 一键运行）
-- [x] 运行历史记录
-- [x] Skill 文件管理
-- [x] Plugin 发现与加载
-- [x] Agent 思考过程实时流式展示
+- [x] Agent details page (full config + historical communications + output files)
+- [x] Communication logs page (browse by date + filter by sender/type)
+- [x] Drag-and-drop to add/remove Agents on canvas, custom teams
+- [x] Parallel execution mode (dependency resolution + deadlock detection)
+- [x] Human-in-the-loop: Pause, intervene, modify Agent behavior
+- [x] Task board view (Kanban style)
+- [x] Workflow management (Workflow CRUD + one-click run)
+- [x] Run history records
+- [x] Skill file management
+- [x] Plugin discovery and loading
+- [x] Real-time streaming display of Agent thinking process
 
-### Phase 3: 生态扩展
+### Phase 3: Ecosystem Extension
 
-- [ ] OpenAI Provider 适配
-- [ ] 自定义 Provider 接口（让用户接入任意 LLM）
-- [ ] 更多工具支持（MCP 集成扩展）
-- [ ] 团队模板市场（社区共享模板）
-- [ ] 角色模板市场（社区共享角色）
+- [ ] OpenAI Provider adapter
+- [ ] Custom Provider interface (let users connect any LLM)
+- [ ] More tool support (MCP integration extension)
+- [ ] Team template marketplace (community shared templates)
+- [ ] Role template marketplace (community shared roles)
 
 ---
 
-## 附录：术语表
+## Appendix: Glossary
 
-| 术语 | 含义 |
-|------|------|
-| Agent | 具有角色和技能的 AI 智能体实例 |
-| Team | 一组协作 Agent 的集合 |
-| Task | 分配给 Agent 的具体工作单元 |
-| Orchestrator | 编排引擎，负责任务调度 |
-| Meta-Agent | 特殊 Agent，负责动态生成团队 |
-| Workspace | 文件系统中的工作目录 |
-| Inbox | Agent 的收件箱目录 |
-| Provider | LLM 后端适配器 |
-| Artifact | Agent 产出的工件（代码/文档/报告） |
+| Term | Definition |
+|------|------------|
+| Agent | An AI agent instance with roles and skills |
+| Team | A collection of collaborating Agents |
+| Task | A specific unit of work assigned to an Agent |
+| Orchestrator | Orchestration engine responsible for task scheduling |
+| Meta-Agent | Special Agent responsible for dynamically generating teams |
+| Workspace | Working directory in the file system |
+| Inbox | Agent's inbox directory |
+| Provider | LLM backend adapter |
+| Artifact | Output produced by an Agent (code/docs/reports) |
