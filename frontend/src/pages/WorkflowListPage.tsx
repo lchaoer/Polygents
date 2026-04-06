@@ -67,6 +67,18 @@ export default function WorkflowListPage() {
     }
   };
 
+  const cloneWorkflow = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    try {
+      const res = await fetch(`${API_BASE}/api/workflows/${id}/clone`, { method: "POST" });
+      if (!res.ok) throw new Error("Clone failed");
+      addToast("success", "Workflow cloned");
+      fetchWorkflows();
+    } catch {
+      addToast("error", "Clone failed");
+    }
+  };
+
   const formatTime = (iso?: string) => {
     if (!iso) return "Never run";
     const d = new Date(iso);
@@ -131,6 +143,13 @@ export default function WorkflowListPage() {
                     title="Run"
                   >
                     ▶
+                  </button>
+                  <button
+                    className="wf-clone-btn"
+                    onClick={(e) => cloneWorkflow(e, wf.id)}
+                    title="Clone"
+                  >
+                    ⧉
                   </button>
                   <button
                     className="wf-edit-btn"

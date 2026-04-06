@@ -127,6 +127,39 @@ async def delete_workflow(wf_id: str):
     return {"status": "deleted"}
 
 
+@router.post("/{wf_id}/clone")
+async def clone_workflow(wf_id: str):
+    """Clone a workflow"""
+    if not _workflow_store:
+        raise HTTPException(status_code=500, detail="WorkflowStore not initialized")
+    wf = _workflow_store.get_workflow(wf_id)
+    if not wf:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    from app.engine.workflow_store import WorkflowConfig
+
+    new_name = f"{wf.name} (Copy)"
+    new_id = _safe_id(new_name)
+    base_id = new_id
+    counter = 1
+    while _workflow_store.get_workflow(new_id):
+        new_id = f"{base_id}-{counter}"
+        counter += 1
+
+    clone = WorkflowConfig(
+        id=new_id,
+        name=new_name,
+        description=wf.description,
+        type=wf.type,
+        template_id=wf.template_id,
+        agent_config=wf.agent_config,
+        default_prompt=wf.default_prompt,
+        default_goal=wf.default_goal,
+    )
+    _workflow_store.save_workflow(clone)
+    return clone.model_dump()
+
+
 @router.post("/{wf_id}/run")
 async def run_workflow(wf_id: str):
     """One-click workflow execution"""

@@ -5,6 +5,7 @@ import MetaAgentChat from "../components/MetaAgentChat";
 import TeamPreview from "../components/TeamPreview";
 import useFlowStore from "../store/flowStore";
 import { API_BASE } from "../config";
+import { ROLE_PRESETS } from "../constants/rolePresets";
 
 const AVAILABLE_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "Skill"];
 const ROLE_TYPES = ["planner", "executor", "reviewer", "tester", "designer", "researcher"];
@@ -57,6 +58,7 @@ export default function CreatePage() {
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [advancedMode, setAdvancedMode] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
   const [availableSkills, setAvailableSkills] = useState<{name: string; description: string; source: string}[]>([]);
   const [availablePlugins, setAvailablePlugins] = useState<{name: string; scope: string; install_path: string; version: string}[]>([]);
@@ -100,7 +102,17 @@ export default function CreatePage() {
 
   const updateAgent = (idx: number, field: keyof AgentForm, value: any) => {
     setAgents((prev) =>
-      prev.map((a, i) => (i === idx ? { ...a, [field]: value } : a))
+      prev.map((a, i) => {
+        if (i !== idx) return a;
+        const updated = { ...a, [field]: value };
+        // Auto-fill from presets when role_type changes in Basic mode
+        if (field === "role_type" && !advancedMode && value in ROLE_PRESETS) {
+          const preset = ROLE_PRESETS[value as string];
+          if (!a.system_prompt) updated.system_prompt = preset.system_prompt;
+          if (a.tools.length === 0) updated.tools = preset.tools;
+        }
+        return updated;
+      })
     );
   };
 
@@ -412,6 +424,21 @@ export default function CreatePage() {
           </select>
         </div>
 
+        <div className="create-mode-toggle">
+          <button
+            className={`mode-toggle-btn ${!advancedMode ? "active" : ""}`}
+            onClick={() => setAdvancedMode(false)}
+          >
+            Basic
+          </button>
+          <button
+            className={`mode-toggle-btn ${advancedMode ? "active" : ""}`}
+            onClick={() => setAdvancedMode(true)}
+          >
+            Advanced
+          </button>
+        </div>
+
         <div className="create-agents-section">
           <div className="create-agents-header">
             <label className="config-label">Agent List</label>
@@ -430,17 +457,22 @@ export default function CreatePage() {
               </div>
 
               <div className="create-agent-fields">
-                <div className="create-field-row">
-                  <div className="create-field">
-                    <label className="config-label">ID</label>
-                    <input
-                      className="create-input"
-                      value={agent.id}
-                      onChange={(e) => updateAgent(idx, "id", e.target.value)}
-                      placeholder="agent-id"
-                    />
-                    {errors[`agent-${idx}-id`] && <span className="field-error">{errors[`agent-${idx}-id`]}</span>}
+                {advancedMode && (
+                  <div className="create-field-row">
+                    <div className="create-field">
+                      <label className="config-label">ID</label>
+                      <input
+                        className="create-input"
+                        value={agent.id}
+                        onChange={(e) => updateAgent(idx, "id", e.target.value)}
+                        placeholder="agent-id"
+                      />
+                      {errors[`agent-${idx}-id`] && <span className="field-error">{errors[`agent-${idx}-id`]}</span>}
+                    </div>
                   </div>
+                )}
+
+                <div className="create-field-row">
                   <div className="create-field">
                     <label className="config-label">Role Name</label>
                     <input
@@ -451,9 +483,6 @@ export default function CreatePage() {
                     />
                     {errors[`agent-${idx}-role`] && <span className="field-error">{errors[`agent-${idx}-role`]}</span>}
                   </div>
-                </div>
-
-                <div className="create-field-row">
                   <div className="create-field">
                     <label className="config-label">Role Type</label>
                     <input
@@ -469,6 +498,9 @@ export default function CreatePage() {
                       ))}
                     </datalist>
                   </div>
+                </div>
+
+                <div className="create-field-row">
                   <div className="create-field">
                     <label className="config-label">Model</label>
                     <select
@@ -484,34 +516,38 @@ export default function CreatePage() {
                   </div>
                 </div>
 
-                <div className="create-field">
-                  <label className="config-label">System Prompt</label>
-                  <textarea
-                    className="create-textarea"
-                    value={agent.system_prompt}
-                    onChange={(e) => updateAgent(idx, "system_prompt", e.target.value)}
-                    placeholder="Describe this Agent's responsibilities and workflow..."
-                    rows={4}
-                  />
-                </div>
-
-                <div className="create-field">
-                  <label className="config-label">Tools</label>
-                  <div className="create-tools">
-                    {AVAILABLE_TOOLS.map((tool) => (
-                      <label key={tool} className="create-tool-checkbox">
-                        <input
-                          type="checkbox"
-                          checked={agent.tools.includes(tool)}
-                          onChange={() => toggleTool(idx, tool)}
-                        />
-                        <span>{tool}</span>
-                      </label>
-                    ))}
+                {advancedMode && (
+                  <div className="create-field">
+                    <label className="config-label">System Prompt</label>
+                    <textarea
+                      className="create-textarea"
+                      value={agent.system_prompt}
+                      onChange={(e) => updateAgent(idx, "system_prompt", e.target.value)}
+                      placeholder="Describe this Agent's responsibilities and workflow..."
+                      rows={4}
+                    />
                   </div>
-                </div>
+                )}
 
-                {agent.tools.includes("Skill") && availableSkills.length > 0 && (
+                {advancedMode && (
+                  <div className="create-field">
+                    <label className="config-label">Tools</label>
+                    <div className="create-tools">
+                      {AVAILABLE_TOOLS.map((tool) => (
+                        <label key={tool} className="create-tool-checkbox">
+                          <input
+                            type="checkbox"
+                            checked={agent.tools.includes(tool)}
+                            onChange={() => toggleTool(idx, tool)}
+                          />
+                          <span>{tool}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {advancedMode && agent.tools.includes("Skill") && availableSkills.length > 0 && (
                   <div className="create-field">
                     <label className="config-label">Skills</label>
                     <div className="skill-selector">
@@ -531,7 +567,7 @@ export default function CreatePage() {
                   </div>
                 )}
 
-                {availablePlugins.length > 0 && (
+                {advancedMode && availablePlugins.length > 0 && (
                   <div className="create-field">
                     <label className="config-label">Plugins</label>
                     <div className="plugin-selector">

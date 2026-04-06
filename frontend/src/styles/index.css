@@ -1319,6 +1319,42 @@ body {
   height: 16px;
 }
 
+/* Basic/Advanced mode toggle */
+.create-mode-toggle {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  margin-bottom: 16px;
+  width: fit-content;
+}
+
+.mode-toggle-btn {
+  padding: 6px 20px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.mode-toggle-btn.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid rgba(0, 240, 255, 0.2);
+}
+
+.mode-toggle-btn:hover:not(.active) {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
 .create-actions {
   display: flex;
   gap: 14px;
@@ -3347,6 +3383,27 @@ body {
 .wf-run-btn:hover {
   background: #22c55e;
   color: var(--bg-primary);
+}
+
+.wf-clone-btn {
+  background: transparent;
+  border: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.wf-clone-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
 }
 
 .wf-delete-btn {
