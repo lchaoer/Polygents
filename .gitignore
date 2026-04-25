@@ -38,5 +38,9 @@ backend/config.json
 # 运行时工作目录
 backend/workspace/
 
+# Polygents v2 user data
+workflows/
+runs/
+
 # Logs
 *.log
