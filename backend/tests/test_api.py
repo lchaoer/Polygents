@@ -51,7 +51,16 @@ def test_workflow_api_crud(polygents_root):
     assert r.status_code == 404
 
 
-def test_run_creation_via_api(polygents_root):
+def test_run_creation_via_api(polygents_root, monkeypatch):
+    from app.engine import registry
+
+    started: list[str] = []
+
+    async def _fake_start(run_id: str) -> None:
+        started.append(run_id)
+
+    monkeypatch.setattr(registry, "start_run", _fake_start)
+
     c = _client(polygents_root)
 
     wf_payload = {
@@ -68,6 +77,7 @@ def test_run_creation_via_api(polygents_root):
     run_id = snap["id"]
     assert snap["task"] == "do thing"
     assert snap["status"]["state"] == "pending"
+    assert started == [run_id]
 
     r = c.get(f"/api/runs/{run_id}")
     assert r.status_code == 200
@@ -75,6 +85,10 @@ def test_run_creation_via_api(polygents_root):
     r = c.get(f"/api/workflows/{wf_id}/runs")
     assert any(run["id"] == run_id for run in r.json())
 
+    async def _fake_cancel(run_id: str) -> bool:
+        return True
+
+    monkeypatch.setattr(registry, "cancel_run", _fake_cancel)
     r = c.post(f"/api/runs/{run_id}/cancel")
     assert r.status_code == 200
     assert r.json()["state"] == "cancelled"

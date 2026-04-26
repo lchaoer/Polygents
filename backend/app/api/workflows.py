@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from app.engine import registry
 from app.storage import workflow_store as ws
 from app.storage import run_store as rs
 
@@ -44,10 +45,11 @@ class RunRequest(BaseModel):
 
 
 @router.post("/{workflow_id}/run", status_code=201)
-def run_workflow(workflow_id: str, req: RunRequest) -> rs.RunSnapshot:
+async def run_workflow(workflow_id: str, req: RunRequest) -> rs.RunSnapshot:
     snap = rs.create_run(workflow_id, req.task)
     if snap is None:
         raise HTTPException(404, "workflow not found")
+    await registry.start_run(snap.id)
     return snap
 
 

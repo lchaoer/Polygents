@@ -1,6 +1,10 @@
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import PlainTextResponse
+import asyncio
+import json
 
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import PlainTextResponse, StreamingResponse
+
+from app.engine import broker, registry
 from app.storage import run_store as rs
 
 router = APIRouter()
@@ -36,8 +40,39 @@ def read_file(run_id: str, path: str) -> str:
 
 
 @router.post("/{run_id}/cancel")
-def cancel_run(run_id: str) -> rs.RunStatus:
-    status = rs.update_status(run_id, state="cancelled")
-    if status is None:
+async def cancel_run(run_id: str) -> rs.RunStatus:
+    if rs.get_run(run_id) is None:
         raise HTTPException(404, "run not found")
+    await registry.cancel_run(run_id)
+    status = rs.update_status(run_id, state="cancelled")
     return status
+
+
+async def _event_stream(run_id: str):
+    async with broker.subscribe(run_id) as queue:
+        yield ": connected\n\n"
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=15.0)
+            except asyncio.TimeoutError:
+                yield ": keepalive\n\n"
+                continue
+            if event.get("type") == "_eof":
+                yield "event: end\ndata: {}\n\n"
+                return
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+
+@router.get("/{run_id}/events")
+async def run_events(run_id: str):
+    if rs.get_run(run_id) is None:
+        raise HTTPException(404, "run not found")
+    return StreamingResponse(
+        _event_stream(run_id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
