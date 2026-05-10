@@ -39,6 +39,18 @@ def read_file(run_id: str, path: str) -> str:
     return content
 
 
+@router.get("/{run_id}/diff/{kind}/{round_n}", response_class=PlainTextResponse)
+def get_round_diff(run_id: str, kind: str, round_n: int) -> str:
+    if kind not in ("report", "review"):
+        raise HTTPException(400, "kind must be 'report' or 'review'")
+    if rs.get_run(run_id) is None:
+        raise HTTPException(404, "run not found")
+    out = rs.diff_round(run_id, round_n, kind=kind)
+    if out is None:
+        raise HTTPException(404, "round not found")
+    return out
+
+
 @router.post("/{run_id}/cancel")
 async def cancel_run(run_id: str) -> rs.RunStatus:
     if rs.get_run(run_id) is None:

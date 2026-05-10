@@ -48,6 +48,19 @@ class WorkerCriticRunner:
             except Exception:
                 logger.exception("event callback failed")
 
+    def _make_stream_emitter(self, round_n: int, role: str) -> Callable[[dict], Awaitable[None]]:
+        async def emit(ev: dict) -> None:
+            await self._emit(
+                {
+                    "type": "agent_stream",
+                    "round": round_n,
+                    "role": role,
+                    "kind": ev.get("kind"),
+                    **{k: v for k, v in ev.items() if k != "kind"},
+                }
+            )
+        return emit
+
     async def run(self) -> str:
         snap = rs.get_run(self.run_id)
         if snap is None:
@@ -94,12 +107,21 @@ class WorkerCriticRunner:
                 await self._emit(
                     {"type": "round_start", "round": round_n, "role": "worker"}
                 )
+                await self._emit(
+                    {"type": "agent_started", "round": round_n, "role": "worker"}
+                )
 
                 if round_n == 1:
                     worker_prompt = worker_round_1_prompt(snap.task)
                 else:
                     worker_prompt = worker_round_n_prompt(round_n)
-                await self._worker.send(worker_prompt)
+                await self._worker.send(
+                    worker_prompt,
+                    on_stream=self._make_stream_emitter(round_n, "worker"),
+                )
+                await self._emit(
+                    {"type": "agent_finished", "round": round_n, "role": "worker"}
+                )
 
                 report_path = reports_dir / f"round-{round_n}.md"
                 if not report_path.exists():
@@ -119,11 +141,20 @@ class WorkerCriticRunner:
                 await self._emit(
                     {"type": "round_start", "round": round_n, "role": "critic"}
                 )
+                await self._emit(
+                    {"type": "agent_started", "round": round_n, "role": "critic"}
+                )
                 if round_n == 1:
                     critic_prompt = critic_round_1_prompt()
                 else:
                     critic_prompt = critic_round_n_prompt(round_n)
-                await self._critic.send(critic_prompt)
+                await self._critic.send(
+                    critic_prompt,
+                    on_stream=self._make_stream_emitter(round_n, "critic"),
+                )
+                await self._emit(
+                    {"type": "agent_finished", "round": round_n, "role": "critic"}
+                )
 
                 review_path = reviews_dir / f"round-{round_n}.md"
                 if not review_path.exists():

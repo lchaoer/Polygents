@@ -40,6 +40,25 @@ def delete_workflow(workflow_id: str) -> None:
         raise HTTPException(404, "workflow not found")
 
 
+@router.post("/{workflow_id}/duplicate", status_code=201)
+def duplicate_workflow(workflow_id: str) -> ws.Workflow:
+    src = ws.get_workflow(workflow_id)
+    if src is None:
+        raise HTTPException(404, "workflow not found")
+    payload = ws.WorkflowPayload(
+        config=ws.WorkflowConfig(
+            name=f"{src.config.name} (copy)",
+            max_rounds=src.config.max_rounds,
+            worker_model=src.config.worker_model,
+            critic_model=src.config.critic_model,
+        ),
+        worker_md=src.worker_md,
+        critic_md=src.critic_md,
+        checklist_md=src.checklist_md,
+    )
+    return ws.create_workflow(payload)
+
+
 class RunRequest(BaseModel):
     task: str
 

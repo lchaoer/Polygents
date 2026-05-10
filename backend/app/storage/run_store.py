@@ -40,6 +40,8 @@ class RunSnapshot(BaseModel):
     checklist: str
     reports: list[str]
     reviews: list[str]
+    report_times: dict[str, float] = {}
+    review_times: dict[str, float] = {}
 
 
 def _run_dir(run_id: str) -> Path:
@@ -129,6 +131,16 @@ def _list_round_files(d: Path) -> list[str]:
     return files
 
 
+def _round_file_times(d: Path) -> dict[str, float]:
+    if not d.is_dir():
+        return {}
+    return {
+        f.name: f.stat().st_mtime
+        for f in d.iterdir()
+        if f.is_file() and f.suffix == ".md"
+    }
+
+
 def get_run(run_id: str) -> Optional[RunSnapshot]:
     d = _run_dir(run_id)
     if not d.is_dir():
@@ -150,6 +162,8 @@ def get_run(run_id: str) -> Optional[RunSnapshot]:
         checklist=checklist,
         reports=_list_round_files(d / "reports"),
         reviews=_list_round_files(d / "reviews"),
+        report_times=_round_file_times(d / "reports"),
+        review_times=_round_file_times(d / "reviews"),
     )
 
 
@@ -201,6 +215,40 @@ def list_workspace_files(run_id: str) -> Optional[list[dict]]:
             stat = p.stat()
             out.append({"path": rel, "size": stat.st_size, "mtime": stat.st_mtime})
     return out
+
+
+def diff_round(run_id: str, round_n: int, kind: str = "report") -> Optional[str]:
+    """Unified diff between round N-1 and round N report (or review).
+
+    Returns the diff string, or '' when round N exists but round N-1 doesn't,
+    or None when round N itself doesn't exist.
+    """
+    if kind not in ("report", "review"):
+        return None
+    folder = "reports" if kind == "report" else "reviews"
+    d = _run_dir(run_id) / folder
+    cur = d / f"round-{round_n}.md"
+    if not cur.is_file():
+        return None
+    cur_text = cur.read_text(encoding="utf-8").splitlines(keepends=True)
+
+    if round_n <= 1:
+        return ""
+    prev = d / f"round-{round_n - 1}.md"
+    if not prev.is_file():
+        return ""
+    prev_text = prev.read_text(encoding="utf-8").splitlines(keepends=True)
+
+    import difflib
+
+    diff_lines = difflib.unified_diff(
+        prev_text,
+        cur_text,
+        fromfile=f"round-{round_n - 1}.md",
+        tofile=f"round-{round_n}.md",
+        n=3,
+    )
+    return "".join(diff_lines)
 
 
 def delete_run(run_id: str) -> bool:

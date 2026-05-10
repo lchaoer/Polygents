@@ -38,9 +38,10 @@ async def _get_channel(run_id: str) -> _RunChannel:
         return ch
 
 
-async def publish(run_id: str, event: dict) -> None:
+async def publish(run_id: str, event: dict, *, historical: bool = True) -> None:
     ch = await _get_channel(run_id)
-    ch.history.append(event)
+    if historical:
+        ch.history.append(event)
     for q in list(ch.subscribers):
         try:
             q.put_nowait(event)

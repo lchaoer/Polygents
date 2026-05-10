@@ -17,8 +17,12 @@ _runners: Dict[str, Tuple[WorkerCriticRunner, asyncio.Task]] = {}
 _lock = asyncio.Lock()
 
 
+_STREAM_EVENT_TYPES = {"agent_stream"}
+
+
 async def _publish(run_id: str, event: dict) -> None:
-    await broker.publish(run_id, event)
+    historical = event.get("type") not in _STREAM_EVENT_TYPES
+    await broker.publish(run_id, event, historical=historical)
 
 
 async def _drive(run_id: str, runner: WorkerCriticRunner) -> None:

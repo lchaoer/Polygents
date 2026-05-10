@@ -97,3 +97,51 @@ def test_list_runs_filtered(polygents_root):
 
     other = rs.list_runs(workflow_id="nope")
     assert other == []
+
+
+def test_diff_round_returns_empty_for_round_one(polygents_root):
+    from app.storage import run_store as rs
+
+    wf = _make_workflow()
+    snap = rs.create_run(wf.id, "task")
+    run_dir = Path(polygents_root) / "runs" / snap.id
+    (run_dir / "reports" / "round-1.md").write_text("hi", encoding="utf-8")
+
+    assert rs.diff_round(snap.id, 1, kind="report") == ""
+
+
+def test_diff_round_returns_unified_diff(polygents_root):
+    from app.storage import run_store as rs
+
+    wf = _make_workflow()
+    snap = rs.create_run(wf.id, "task")
+    run_dir = Path(polygents_root) / "runs" / snap.id
+    (run_dir / "reports" / "round-1.md").write_text(
+        "alpha\nbeta\n", encoding="utf-8"
+    )
+    (run_dir / "reports" / "round-2.md").write_text(
+        "alpha\ngamma\n", encoding="utf-8"
+    )
+
+    diff = rs.diff_round(snap.id, 2, kind="report")
+    assert diff is not None
+    assert "round-1.md" in diff
+    assert "round-2.md" in diff
+    assert "-beta" in diff
+    assert "+gamma" in diff
+
+
+def test_diff_round_missing_round_returns_none(polygents_root):
+    from app.storage import run_store as rs
+
+    wf = _make_workflow()
+    snap = rs.create_run(wf.id, "task")
+    assert rs.diff_round(snap.id, 5, kind="report") is None
+
+
+def test_diff_round_invalid_kind_returns_none(polygents_root):
+    from app.storage import run_store as rs
+
+    wf = _make_workflow()
+    snap = rs.create_run(wf.id, "task")
+    assert rs.diff_round(snap.id, 1, kind="bogus") is None
