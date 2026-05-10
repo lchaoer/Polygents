@@ -92,7 +92,24 @@ The project is strict TypeScript. Run this before committing frontend changes.
 
 ### End-to-end
 
-There's no automated E2E suite. We do **Playwright-driven smoke tests** when validating UI changes — see screenshots in `temp/screenshots/` (which is also where you should save any debugging screenshots; never the project root).
+No persisted `.spec.ts` E2E suite — every Polygents run hits a real Anthropic API call (we deliberately don't mock the SDK; see [Design constraints](#design-constraints-read-before-extending)), which makes a CI-runnable suite expensive and flaky. Instead we maintain a **Playwright-MCP smoke matrix** that's run-and-checked manually before any meaningful UI change. Screenshots from the most recent pass live in [`temp/screenshots/`](../../temp/screenshots/).
+
+Last run: **2026-05-10**, 10/10 passing.
+
+| # | Scenario | What it covers |
+|---|---|---|
+| 1 | Workflow CRUD | Create with sane defaults, slug `<name>-<8hex>`, appears in list, Delete confirms + removes |
+| 2 | Workflow Duplicate | Server-side copy named `(copy)`, fresh id with `-copy-` infix, auto-navigates into copy |
+| 3 | Dirty marker + leave-warning | `dirty-dot` renders on edit, Save un-disables, `beforeunload` listener installed. **Known gap**: top-nav `<NavLink>` bypasses the in-app `confirm()` guard — only page-internal back buttons honor it. |
+| 4 | Keyboard shortcuts | `Ctrl/⌘+1/2/3` switch prompt tabs, `Ctrl/⌘+S` saves and clears dirty. (`Ctrl+Enter` save+run skipped — costs a real run.) |
+| 5 | Cancel mid-run | Click Cancel → status flips to `cancelled` within ~3s |
+| 6 | Runs filter chips | Workflow chip click narrows list, `.chip.active` highlights, "All" restores |
+| 7 | Failed-run error card | Visible on FAILED run, shows `status.error` text |
+| 8 | Workspace file viewer | Click `output.md` row opens viewer with file content; Close button dismisses |
+| 9 | AgentDrawer | Click Worker node opens drawer titled `👷 Worker · all rounds` listing every round; `Esc` closes |
+| 10 | Cross-run report diff | Two runs same workflow + same task: page-sub says "Same workflow + same task.", Round button appears in `.cmp-cross`, click renders client-side LCS diff with `-` red / `+` green / hunk header |
+
+**How to extend**: when you add a UI surface, add a row here with the click sequence and the expected post-condition; the next person doing UI work runs the matrix top-to-bottom in a Playwright MCP session.
 
 ## Project conventions
 
@@ -168,6 +185,10 @@ The dev config pins `host: "127.0.0.1"`. If you see `localhost` issues on Window
 ### "I broke the verdict format and the run keeps failing"
 
 `parse_verdict` is intentionally strict — `## Verdict\nPASS` exactly. Look at `app/engine/verdict.py` for the regex. The failure message in the run's error card tells you what was found instead.
+
+### "Top-nav links navigate away while my edit page is dirty"
+
+Known gap. `WorkflowEditPage` has a `guardedNavigate` that wraps in-page back buttons, but the `<NavLink>` elements in `App.tsx` do plain react-router navigation and bypass the guard. `beforeunload` still catches *closing the tab*, but in-app nav is unprotected. Save first, or accept the loss. Fix would be hoisting dirty state and intercepting at the router level.
 
 ## Adding a new tool to the Worker
 
